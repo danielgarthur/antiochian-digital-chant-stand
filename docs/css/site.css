@@ -1,0 +1,265 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ink: #172019;
+  --green: #26372f;
+  --green-light: #e8eee9;
+  --gold: #b88a33;
+  --paper: #f6f3ea;
+  --line: #c9cec9;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; min-height: 100%; background: #555; color: var(--ink); }
+
+button, select { font: inherit; touch-action: manipulation; }
+
+button { cursor: pointer; }
+
+button:disabled { cursor: default; opacity: .28; }
+
+.controls {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: max(.35rem, env(safe-area-inset-top)) .55rem .45rem;
+  background: var(--paper);
+  border-bottom: 2px solid var(--gold);
+  box-shadow: 0 2px 7px #0004;
+}
+
+.top-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  max-width: 70rem;
+  margin: 0 auto .3rem;
+  gap: .35rem;
+  align-items: start;
+}
+
+.schedule {
+  max-width: 70rem;
+  margin: 0;
+}
+
+.schedule summary {
+  display: flex;
+  min-height: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  gap: .65rem;
+  padding: .25rem 1rem;
+  border-radius: .4rem;
+  background: var(--green);
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+  touch-action: manipulation;
+}
+
+.schedule summary::-webkit-details-marker { display: none; }
+
+.schedule .disclosure {
+  font-size: 1.2rem;
+  line-height: 1;
+  transition: transform .15s ease;
+}
+
+.schedule[open] .disclosure { transform: rotate(180deg); }
+
+.schedule-controls { padding-top: .3rem; }
+
+.view-toggle {
+  min-height: 2.35rem;
+  padding: .25rem .8rem;
+  border: 1px solid var(--green);
+  border-radius: .4rem;
+  background: white;
+  color: var(--green);
+  font-weight: 750;
+}
+
+.notes-mode .view-toggle { background: var(--green); color: white; }
+
+.notes-mode .music-row { display: none; }
+
+.nav-row, .music-row {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) 3rem;
+  align-items: stretch;
+  max-width: 70rem;
+  margin: 0 auto .3rem;
+  gap: .35rem;
+}
+
+.date-row { color: white; background: #41544a; border-radius: .4rem; }
+
+.service-row { border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+
+.arrow {
+  min-width: 3rem;
+  min-height: 2.7rem;
+  border: 0;
+  border-radius: .35rem;
+  color: inherit;
+  background: transparent;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.arrow:not(:disabled):active { background: #0002; }
+
+.center-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: center;
+}
+
+.center-label small { opacity: .72; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; }
+
+.music-picker { display: grid; min-width: 0; align-content: center; }
+
+#musicSelect {
+  width: 100%;
+  min-height: 2.7rem;
+  padding: .35rem 2rem .35rem .6rem;
+  border: 1px solid #aeb5af;
+  border-radius: .35rem;
+  background: white;
+  color: var(--ink);
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+#musicPosition { color: #657068; font-size: .68rem; }
+
+.music-meta {
+  display: flex;
+  min-height: 1.35rem;
+  align-items: center;
+  justify-content: center;
+  gap: .35rem;
+}
+
+.setting-trigger {
+  padding: 0 .45rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--green-light);
+  color: var(--green);
+  font-size: .7rem;
+  font-weight: 750;
+}
+
+.settings-dialog {
+  width: min(26rem, calc(100% - 2rem));
+  padding: 0;
+  border: 0;
+  border-radius: .7rem;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 10px 40px #0008;
+}
+
+.settings-dialog::backdrop { background: #0008; }
+
+.dialog-heading {
+  display: flex;
+  min-height: 3.2rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: .55rem .7rem .55rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-close {
+  width: 2.6rem;
+  height: 2.6rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 1.7rem;
+}
+
+.setting-list {
+  display: grid;
+  gap: .45rem;
+  padding: .7rem;
+}
+
+.setting {
+  min-height: 3rem;
+  padding: .5rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: .45rem;
+  background: white;
+  text-align: left;
+  font-weight: 650;
+}
+
+.setting.selected { border-color: var(--green); background: var(--green); color: white; }
+
+.viewer { min-height: 60vh; padding: .7rem; }
+
+.pages { display: grid; justify-items: center; gap: .7rem; }
+
+.pages[hidden] { display: none; }
+
+.pdf-page-shell {
+  width: min(100%, 1100px);
+  background: white;
+  box-shadow: 0 2px 8px #0008;
+}
+
+.pdf-page { display: block; width: 100%; height: 100%; }
+
+.message {
+  width: min(34rem, calc(100% - 2rem));
+  margin: 3rem auto;
+  padding: 1.1rem;
+  border-radius: .4rem;
+  background: var(--paper);
+  text-align: center;
+}
+
+.message:empty { display: none; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (min-width: 800px) {
+  .controls { padding-inline: 1rem; }
+  .viewer { padding: 1rem; }
+}
+
+@media (orientation: landscape) and (max-height: 700px) {
+  .controls { padding-top: .25rem; }
+  .nav-row, .music-row { margin-bottom: .2rem; }
+  .arrow, #musicSelect { min-height: 2.35rem; }
+}
+
+@media (max-width: 600px) {
+  .settings-dialog {
+    width: 100%;
+    max-width: none;
+    margin: auto 0 0;
+    border-radius: .8rem .8rem 0 0;
+  }
+}

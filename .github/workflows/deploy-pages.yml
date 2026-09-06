@@ -1,0 +1,94 @@
+name: Build and deploy chant stand
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    # Saturday at 11:17 AM Central. Avoiding the top of the hour reduces delays.
+    - cron: "17 11 * * 6"
+      timezone: "America/Chicago"
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "First service date (YYYY-MM-DD); blank uses yesterday"
+        required: false
+        type: string
+      end_date:
+        description: "Last service date (YYYY-MM-DD); blank uses eight days ahead"
+        required: false
+        type: string
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Choose service date range
+        id: dates
+        env:
+          REQUESTED_START: ${{ inputs.start_date }}
+          REQUESTED_END: ${{ inputs.end_date }}
+        run: |
+          if [[ -n "$REQUESTED_START" ]]; then
+            start="$REQUESTED_START"
+          else
+            start="$(TZ=America/Chicago date -d 'yesterday' +%F)"
+          fi
+          if [[ -n "$REQUESTED_END" ]]; then
+            end="$REQUESTED_END"
+          elif [[ -n "$REQUESTED_START" ]]; then
+            end="$REQUESTED_START"
+          else
+            end="$(TZ=America/Chicago date -d '+8 days' +%F)"
+          fi
+          echo "start=$start" >> "$GITHUB_OUTPUT"
+          echo "end=$end" >> "$GITHUB_OUTPUT"
+
+      - name: Build site
+        run: >-
+          python pipeline/build_library.py
+          --start "${{ steps.dates.outputs.start }}"
+          --end "${{ steps.dates.outputs.end }}"
+
+      - name: Validate generated site
+        run: python pipeline/validate_site.py
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs
+          retention-days: 1
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

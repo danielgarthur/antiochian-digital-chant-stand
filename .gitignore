@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+pipeline/.download-cache.json
+pipeline/input/*.pdf
+docs/data/music.json
+docs/pdfs/*.pdf
+docs/services/*.pdf
+docs/vendor/pdfjs/*.mjs
+
+!pipeline/input/.gitkeep
+!docs/data/.gitkeep
+!docs/pdfs/.gitkeep
+!docs/services/.gitkeep
+!docs/vendor/pdfjs/.gitkeep

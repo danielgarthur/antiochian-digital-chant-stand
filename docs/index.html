@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#26372f">
+    <title>Antiochian Chant Stand</title>
+    <link rel="stylesheet" href="./css/site.css?v=dac598f51ee6">
+  </head>
+  <body>
+    <header class="controls" aria-label="Music navigation">
+      <div class="top-row">
+        <details id="schedule" class="schedule">
+          <summary>
+            <span id="scheduleLabel">Loading service…</span>
+            <span class="disclosure" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="schedule-controls">
+          <div class="nav-row date-row">
+            <button id="previousDay" class="arrow" type="button" aria-label="Previous day">‹</button>
+            <button id="today" class="center-label" type="button">
+              <span id="dateLabel">Loading…</span>
+              <small id="dateAction">Today</small>
+            </button>
+            <button id="nextDay" class="arrow" type="button" aria-label="Next day">›</button>
+          </div>
+
+          <div class="nav-row service-row">
+            <button id="previousService" class="arrow" type="button" aria-label="Previous service">‹</button>
+            <strong id="serviceLabel" class="center-label">Service</strong>
+            <button id="nextService" class="arrow" type="button" aria-label="Next service">›</button>
+          </div>
+          </div>
+        </details>
+        <button id="viewToggle" class="view-toggle" type="button">Notes</button>
+      </div>
+
+      <div class="music-row">
+        <button id="previousMusic" class="arrow" type="button" aria-label="Previous music">‹</button>
+        <div class="music-picker">
+          <label class="visually-hidden" for="musicSelect">Music</label>
+          <select id="musicSelect" aria-label="Choose music"></select>
+          <span class="music-meta">
+            <small id="musicPosition"></small>
+            <button id="settingButton" class="setting-trigger" type="button" hidden></button>
+          </span>
+        </div>
+        <button id="nextMusic" class="arrow" type="button" aria-label="Next music">›</button>
+      </div>
+    </header>
+
+    <dialog id="settingsDialog" class="settings-dialog" aria-labelledby="settingsTitle">
+      <div class="dialog-heading">
+        <strong id="settingsTitle">Choose setting</strong>
+        <button id="closeSettings" class="dialog-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div id="settings" class="setting-list"></div>
+    </dialog>
+
+    <main id="viewer" class="viewer" aria-live="polite">
+      <p id="message" class="message">Loading music library…</p>
+      <div id="musicPages" class="pages"></div>
+      <div id="notesPages" class="pages" hidden></div>
+    </main>
+
+    <script type="module" src="./js/app.js?v=ec4e9c299ffb"></script>
+  </body>
+</html>

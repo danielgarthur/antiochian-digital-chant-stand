@@ -1,0 +1,304 @@
+import { clearPdf, showPdf } from "./pdf-viewer.js?v=071190a72fce";
+
+const elements = Object.fromEntries(
+  [
+    "schedule", "scheduleLabel", "previousDay", "today", "nextDay", "dateLabel", "dateAction", "previousService",
+    "nextService", "serviceLabel", "previousMusic", "nextMusic",
+    "musicSelect", "musicPosition", "settingButton", "settingsDialog",
+    "closeSettings", "settings", "viewToggle", "musicPages", "notesPages", "message",
+  ].map((id) => [id, document.getElementById(id)])
+);
+
+let services = [];
+let datedDays = [];
+let serviceIndex = -1;
+let musicIndex = 0;
+let settingIndex = 0;
+let viewMode = "music";
+let activeMusicUrl = null;
+let activeNotesUrl = null;
+const savedPositions = new Map();
+
+// Earlier entries win. Authors not listed here keep their source-document order.
+const PREFERRED_AUTHORS = ["STAM", "CROW", "KARAM", "EL MASSIH", "CHANT"];
+
+function preferredSettingIndex(piece) {
+  if (!piece?.links.length) return 0;
+  let bestIndex = 0;
+  let bestRank = Infinity;
+  piece.links.forEach((link, index) => {
+    const rank = PREFERRED_AUTHORS.indexOf(link.author.toUpperCase());
+    if (rank >= 0 && rank < bestRank) {
+      bestIndex = index;
+      bestRank = rank;
+    }
+  });
+  return bestIndex;
+}
+
+const localDate = () => {
+  const now = new Date();
+  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+};
+
+const servicesOn = (day) => services.filter((service) => service.date === day);
+
+function formatDay(value) {
+  if (!value) return "Other music";
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
+  }).format(new Date(`${value}T12:00:00Z`));
+}
+
+function chooseInitialService() {
+  if (!services.length) return -1;
+  const todayServices = servicesOn(localDate());
+  if (todayServices.length) {
+    const preferred = todayServices.find((service) => service.type === "ORTHROS") || todayServices[0];
+    return services.indexOf(preferred);
+  }
+  const dated = services.filter((service) => service.date);
+  const future = dated.find((service) => service.date > localDate());
+  return services.indexOf(future || dated[dated.length - 1] || services[0]);
+}
+
+function setService(index, preferredTitle = null) {
+  rememberPosition(viewMode);
+  serviceIndex = index;
+  const music = services[serviceIndex]?.music || [];
+  const matchingIndex = preferredTitle
+    ? music.findIndex((piece) => piece.title === preferredTitle)
+    : -1;
+  musicIndex = matchingIndex >= 0 ? matchingIndex : 0;
+  settingIndex = preferredSettingIndex(music[musicIndex]);
+  render();
+}
+
+function moveDay(offset) {
+  const service = services[serviceIndex];
+  const currentDayIndex = datedDays.indexOf(service?.date);
+  const newDay = datedDays[currentDayIndex + offset];
+  if (!newDay) return;
+  const candidates = servicesOn(newDay);
+  const sameType = candidates.find((item) => item.type === service.type);
+  setService(services.indexOf(sameType || candidates[0]));
+}
+
+function moveService(offset) {
+  const sameDay = servicesOn(services[serviceIndex]?.date);
+  const position = sameDay.indexOf(services[serviceIndex]);
+  const target = sameDay[position + offset];
+  if (target) {
+    setService(services.indexOf(target));
+    elements.schedule.open = false;
+  }
+}
+
+function moveMusic(offset) {
+  const target = musicIndex + offset;
+  const music = services[serviceIndex]?.music || [];
+  if (target < 0 || target >= music.length) return;
+  rememberPosition("music");
+  musicIndex = target;
+  settingIndex = preferredSettingIndex(music[musicIndex]);
+  render();
+}
+
+function pagesFor(mode) {
+  return mode === "notes" ? elements.notesPages : elements.musicPages;
+}
+
+function rememberPosition(mode) {
+  const pages = pagesFor(mode);
+  const url = mode === "notes" ? activeNotesUrl : activeMusicUrl;
+  if (!url || pages.hidden) return;
+  savedPositions.set(url, window.scrollY - pages.offsetTop);
+}
+
+function restorePosition(mode, url) {
+  const pages = pagesFor(mode);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const savedPosition = savedPositions.get(url);
+      const top = savedPosition === undefined
+        ? 0
+        : Math.max(0, pages.offsetTop + savedPosition);
+      window.scrollTo({ top });
+    });
+  });
+}
+
+function loadView(url, mode, loadingText) {
+  const pages = pagesFor(mode);
+  const message = viewMode === mode ? elements.message : null;
+  showPdf(url, pages, message, loadingText).then(() => {
+    if (viewMode === mode) restorePosition(mode, url);
+  });
+}
+
+function switchView() {
+  const nextMode = viewMode === "music" ? "notes" : "music";
+  const service = services[serviceIndex];
+  const piece = service?.music[musicIndex];
+  if (nextMode === "notes" && !service?.url) return;
+  if (nextMode === "music" && !piece?.links[settingIndex]) return;
+
+  rememberPosition(viewMode);
+  pagesFor(viewMode).hidden = true;
+  viewMode = nextMode;
+  pagesFor(viewMode).hidden = false;
+  document.body.classList.toggle("notes-mode", viewMode === "notes");
+  elements.viewToggle.textContent = viewMode === "notes" ? "Music" : "Notes";
+  elements.viewToggle.setAttribute(
+    "aria-label",
+    viewMode === "notes" ? "Return to music" : "Show service notes"
+  );
+
+  const url = viewMode === "notes" ? `./${service.url}` : `./${piece.links[settingIndex].url}`;
+  if (viewMode === "notes") activeNotesUrl = url;
+  else activeMusicUrl = url;
+  loadView(url, viewMode, viewMode === "notes" ? "Loading notes…" : "Loading music…");
+}
+
+function render() {
+  const service = services[serviceIndex];
+  if (!service) {
+    clearPdf(elements.musicPages, elements.message, "No services are available yet.");
+    clearPdf(elements.notesPages, null, "");
+    return;
+  }
+  const sameDay = servicesOn(service.date);
+  const dayPosition = datedDays.indexOf(service.date);
+  const servicePosition = sameDay.indexOf(service);
+  const piece = service.music[musicIndex];
+  elements.viewToggle.disabled = !service.url;
+
+  elements.dateLabel.textContent = formatDay(service.date);
+  elements.dateAction.textContent = service.date === localDate() ? "Today" : "Go to today";
+  const compactDay = service.date === localDate() ? "Today" : formatDay(service.date);
+  elements.scheduleLabel.textContent = `${compactDay} · ${service.label}`;
+  elements.serviceLabel.textContent = service.label;
+  elements.previousDay.disabled = dayPosition <= 0;
+  elements.nextDay.disabled = dayPosition < 0 || dayPosition >= datedDays.length - 1;
+  elements.previousService.disabled = servicePosition <= 0;
+  elements.nextService.disabled = servicePosition >= sameDay.length - 1;
+
+  elements.musicSelect.replaceChildren(
+    ...service.music.map((item, index) => {
+      const option = new Option(item.title, String(index), false, index === musicIndex);
+      return option;
+    })
+  );
+  elements.musicSelect.disabled = !service.music.length;
+  elements.musicPosition.textContent = service.music.length
+    ? `${musicIndex + 1} of ${service.music.length}`
+    : "No linked music in this service";
+  elements.previousMusic.disabled = musicIndex <= 0;
+  elements.nextMusic.disabled = musicIndex >= service.music.length - 1;
+  elements.settings.replaceChildren();
+
+  if (viewMode === "notes" && service.url) {
+    const notesUrl = `./${service.url}`;
+    activeNotesUrl = notesUrl;
+    loadView(notesUrl, "notes", "Loading notes…");
+  }
+
+  if (!piece) {
+    elements.settingButton.hidden = true;
+    if (elements.settingsDialog.open) elements.settingsDialog.close();
+    clearPdf(
+      elements.musicPages,
+      viewMode === "music" ? elements.message : null,
+      "No linked music was found in this service."
+    );
+    updateUrl();
+    return;
+  }
+
+  elements.settingButton.hidden = piece.links.length < 2;
+  elements.settingButton.textContent = `${piece.links[settingIndex].author} ▾`;
+  elements.settingButton.setAttribute(
+    "aria-label",
+    `Setting: ${piece.links[settingIndex].author}. Choose another setting`
+  );
+
+  piece.links.forEach((link, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `setting${index === settingIndex ? " selected" : ""}`;
+    button.textContent = link.author;
+    button.setAttribute("aria-pressed", String(index === settingIndex));
+    button.addEventListener("click", () => {
+      rememberPosition("music");
+      settingIndex = index;
+      elements.settingsDialog.close();
+      render();
+    });
+    elements.settings.append(button);
+  });
+  const musicUrl = `./${piece.links[settingIndex].url}`;
+  activeMusicUrl = musicUrl;
+  loadView(musicUrl, "music", "Loading music…");
+
+  updateUrl();
+}
+
+function updateUrl() {
+  const service = services[serviceIndex];
+  if (!service) return;
+  const parameters = new URLSearchParams({ date: service.date || "", service: service.type, music: String(musicIndex) });
+  history.replaceState(null, "", `${location.pathname}?${parameters}`);
+}
+
+function restoreUrlChoice() {
+  const parameters = new URLSearchParams(location.search);
+  const day = parameters.get("date");
+  const type = parameters.get("service");
+  const match = services.findIndex((service) => service.date === day && service.type === type);
+  if (match < 0) return;
+  serviceIndex = match;
+  const requestedMusic = Number(parameters.get("music"));
+  const lastMusic = Math.max(services[match].music.length - 1, 0);
+  musicIndex = Number.isInteger(requestedMusic) ? Math.min(Math.max(requestedMusic, 0), lastMusic) : 0;
+}
+
+elements.previousDay.addEventListener("click", () => moveDay(-1));
+elements.nextDay.addEventListener("click", () => moveDay(1));
+elements.previousService.addEventListener("click", () => moveService(-1));
+elements.nextService.addEventListener("click", () => moveService(1));
+elements.previousMusic.addEventListener("click", () => moveMusic(-1));
+elements.nextMusic.addEventListener("click", () => moveMusic(1));
+elements.musicSelect.addEventListener("change", (event) => {
+  rememberPosition("music");
+  musicIndex = Number(event.target.value);
+  settingIndex = preferredSettingIndex(services[serviceIndex]?.music[musicIndex]);
+  render();
+});
+elements.settingButton.addEventListener("click", () => elements.settingsDialog.showModal());
+elements.closeSettings.addEventListener("click", () => elements.settingsDialog.close());
+elements.settingsDialog.addEventListener("click", (event) => {
+  if (event.target === elements.settingsDialog) elements.settingsDialog.close();
+});
+elements.viewToggle.addEventListener("click", switchView);
+elements.today.addEventListener("click", () => {
+  const todayServices = servicesOn(localDate());
+  if (!todayServices.length) return;
+  const orthros = todayServices.find((service) => service.type === "ORTHROS");
+  setService(services.indexOf(orthros || todayServices[0]));
+  elements.schedule.open = false;
+});
+
+try {
+  const response = await fetch("./data/music.json", { cache: "no-store" });
+  if (!response.ok) throw new Error(`music.json returned ${response.status}`);
+  const data = await response.json();
+  services = data.services || [];
+  datedDays = [...new Set(services.map((service) => service.date).filter(Boolean))];
+  serviceIndex = chooseInitialService();
+  restoreUrlChoice();
+  settingIndex = preferredSettingIndex(services[serviceIndex]?.music[musicIndex]);
+  render();
+} catch (error) {
+  console.error(error);
+  clearPdf(elements.musicPages, elements.message, "The music library could not be loaded. Try reloading the page.");
+}
