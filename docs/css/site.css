@@ -7,6 +7,8 @@
   --gold: #b88a33;
   --paper: #f6f3ea;
   --line: #c9cec9;
+  --nav-button-width: 3rem;
+  --view-toggle-width: 5rem;
 }
 
 * { box-sizing: border-box; }
@@ -30,12 +32,9 @@ button:disabled { cursor: default; opacity: .28; }
 }
 
 .top-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  position: relative;
   max-width: 70rem;
   margin: 0 auto .3rem;
-  gap: .35rem;
-  align-items: start;
 }
 
 .schedule {
@@ -45,6 +44,7 @@ button:disabled { cursor: default; opacity: .28; }
 
 .schedule summary {
   display: flex;
+  margin-right: calc(var(--view-toggle-width) + .35rem);
   min-height: 2.35rem;
   align-items: center;
   justify-content: center;
@@ -62,16 +62,28 @@ button:disabled { cursor: default; opacity: .28; }
 .schedule summary::-webkit-details-marker { display: none; }
 
 .schedule .disclosure {
-  font-size: 1.2rem;
-  line-height: 1;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   transition: transform .15s ease;
 }
 
 .schedule[open] .disclosure { transform: rotate(180deg); }
 
-.schedule-controls { padding-top: .3rem; }
+.schedule-controls {
+  padding-top: .3rem;
+}
 
 .view-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--view-toggle-width);
   min-height: 2.35rem;
   padding: .25rem .8rem;
   border: 1px solid var(--green);
@@ -87,7 +99,7 @@ button:disabled { cursor: default; opacity: .28; }
 
 .nav-row, .music-row {
   display: grid;
-  grid-template-columns: 3rem minmax(0, 1fr) 3rem;
+  grid-template-columns: var(--nav-button-width) minmax(0, 1fr) var(--nav-button-width);
   align-items: stretch;
   max-width: 70rem;
   margin: 0 auto .3rem;
