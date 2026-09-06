@@ -18,6 +18,11 @@ let viewMode = "music";
 let activeMusicUrl = null;
 let activeNotesUrl = null;
 const savedPositions = new Map();
+let viewportWidth = window.innerWidth;
+let scrollFrame = null;
+let resizeTimer = null;
+let restoreGeneration = 0;
+let restoringPosition = false;
 
 // Earlier entries win. Authors not listed here keep their source-document order.
 const PREFERRED_AUTHORS = ["STAM", "CROW", "KARAM", "EL MASSIH", "CHANT"];
@@ -108,25 +113,94 @@ function pagesFor(mode) {
   return mode === "notes" ? elements.notesPages : elements.musicPages;
 }
 
+function urlFor(mode) {
+  return mode === "notes" ? activeNotesUrl : activeMusicUrl;
+}
+
 function rememberPosition(mode) {
   const pages = pagesFor(mode);
-  const url = mode === "notes" ? activeNotesUrl : activeMusicUrl;
+  const url = urlFor(mode);
   if (!url || pages.hidden) return;
-  savedPositions.set(url, window.scrollY - pages.offsetTop);
+  const shells = [...pages.querySelectorAll(".pdf-page-shell")];
+  if (!shells.length) return;
+
+  // Anchor the first unobscured line to a page and a proportional position in
+  // that page. Unlike a raw pixel offset, this remains meaningful when tablet
+  // rotation changes the rendered page height.
+  const readingLine = document.querySelector(".controls").getBoundingClientRect().bottom;
+  let shell = null;
+  for (const candidate of shells) {
+    if (candidate.getBoundingClientRect().top > readingLine) break;
+    shell = candidate;
+  }
+
+  if (!shell) {
+    savedPositions.set(url, { page: 0, offset: window.scrollY });
+    return;
+  }
+
+  const bounds = shell.getBoundingClientRect();
+  savedPositions.set(url, {
+    page: Number(shell.dataset.page),
+    progress: bounds.height ? (readingLine - bounds.top) / bounds.height : 0,
+  });
 }
 
 function restorePosition(mode, url) {
   const pages = pagesFor(mode);
+  const generation = ++restoreGeneration;
+  restoringPosition = true;
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      if (generation !== restoreGeneration || viewMode !== mode || urlFor(mode) !== url) return;
       const savedPosition = savedPositions.get(url);
-      const top = savedPosition === undefined
-        ? 0
-        : Math.max(0, pages.offsetTop + savedPosition);
+      let top = 0;
+      if (savedPosition?.page === 0) {
+        top = savedPosition.offset;
+      } else if (savedPosition) {
+        const shell = pages.querySelector(`[data-page="${savedPosition.page}"]`);
+        if (shell) {
+          const readingLine = document.querySelector(".controls").getBoundingClientRect().bottom;
+          const bounds = shell.getBoundingClientRect();
+          top = window.scrollY + bounds.top
+            + savedPosition.progress * bounds.height - readingLine;
+        }
+      }
       window.scrollTo({ top });
+      requestAnimationFrame(() => {
+        if (generation !== restoreGeneration) return;
+        restoringPosition = false;
+        rememberPosition(mode);
+      });
     });
   });
 }
+
+window.addEventListener("scroll", () => {
+  if (restoringPosition || resizeTimer !== null || window.innerWidth !== viewportWidth) return;
+  if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = null;
+    if (!restoringPosition && window.innerWidth === viewportWidth) rememberPosition(viewMode);
+  });
+}, { passive: true });
+
+window.addEventListener("resize", () => {
+  if (window.innerWidth === viewportWidth && resizeTimer === null) return;
+  restoringPosition = true;
+  if (scrollFrame !== null) {
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = null;
+  }
+  if (resizeTimer !== null) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    resizeTimer = null;
+    viewportWidth = window.innerWidth;
+    const url = urlFor(viewMode);
+    if (url) restorePosition(viewMode, url);
+    else restoringPosition = false;
+  }, 100);
+});
 
 function loadView(url, mode, loadingText) {
   const pages = pagesFor(mode);
