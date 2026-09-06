@@ -1,4 +1,4 @@
-import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=1faf33aa58fc";
+import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=2dd5ec39be2a";
 
 const elements = Object.fromEntries(
   [
@@ -210,18 +210,50 @@ window.addEventListener("resize", () => {
 function loadView(url, mode, loadingText) {
   const pages = pagesFor(mode);
   const message = viewMode === mode ? elements.message : null;
-  showPdf(url, pages, message, loadingText).then(() => {
+  const onLink = mode === "notes" ? selectMusicLink : null;
+  showPdf(url, pages, message, loadingText, onLink).then(() => {
     if (viewMode === mode) restorePosition(mode, url);
   });
 }
 
-function switchView() {
-  const nextMode = viewMode === "music" ? "notes" : "music";
-  const service = services[serviceIndex];
-  const piece = service?.music[musicIndex];
-  if (nextMode === "notes" && !service?.url) return;
-  if (nextMode === "music" && !piece?.links[settingIndex]) return;
+function normalizedUrl(value) {
+  try {
+    return new URL(value, window.location.href).href;
+  } catch {
+    return value;
+  }
+}
 
+function selectMusicLink(annotation) {
+  const music = services[serviceIndex]?.music || [];
+  const candidates = [];
+  music.forEach((piece, pieceIndex) => {
+    piece.links.forEach((link, linkIndex) => {
+      if (normalizedUrl(link.sourceUrl) === normalizedUrl(annotation.url)) {
+        candidates.push({ link, pieceIndex, linkIndex });
+      }
+    });
+  });
+  if (!candidates.length) return false;
+
+  const samePage = candidates.filter(({ link }) => link.sourcePage === annotation.page);
+  const matches = samePage.length ? samePage : candidates;
+  const selected = matches.reduce((closest, candidate) => {
+    if (candidate.link.sourceTop == null || annotation.top == null) return closest;
+    if (closest.link.sourceTop == null) return candidate;
+    return Math.abs(candidate.link.sourceTop - annotation.top)
+      < Math.abs(closest.link.sourceTop - annotation.top) ? candidate : closest;
+  });
+
+  setViewMode("music");
+  musicIndex = selected.pieceIndex;
+  settingIndex = selected.linkIndex;
+  render();
+  return true;
+}
+
+function setViewMode(nextMode) {
+  if (nextMode === viewMode) return;
   rememberPosition(viewMode);
   pagesFor(viewMode).hidden = true;
   viewMode = nextMode;
@@ -232,6 +264,16 @@ function switchView() {
     "aria-label",
     viewMode === "notes" ? "Return to music" : "Show service notes"
   );
+}
+
+function switchView() {
+  const nextMode = viewMode === "music" ? "notes" : "music";
+  const service = services[serviceIndex];
+  const piece = service?.music[musicIndex];
+  if (nextMode === "notes" && !service?.url) return;
+  if (nextMode === "music" && !piece?.links[settingIndex]) return;
+
+  setViewMode(nextMode);
 
   const url = viewMode === "notes" ? `./${service.url}` : `./${piece.links[settingIndex].url}`;
   if (viewMode === "notes") activeNotesUrl = url;

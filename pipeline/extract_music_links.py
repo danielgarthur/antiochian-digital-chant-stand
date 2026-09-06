@@ -199,6 +199,13 @@ def group_entries(entries: list[dict]) -> list[dict]:
             continue
         seen_links.add(link_key)
         grouped[-1]["links"].append(
-            {"setting": entry["setting"], "sourceUrl": entry["sourceUrl"]}
+            {
+                "setting": entry["setting"],
+                "sourceUrl": entry["sourceUrl"],
+                # Retain the annotation location so the browser viewer can
+                # distinguish repeated uses of the same PDF within a service.
+                "sourcePage": entry.get("page"),
+                "sourceTop": entry.get("top"),
+            }
         )
     return grouped

@@ -88,6 +88,17 @@ class GroupEntriesTests(unittest.TestCase):
 
         self.assertEqual(len(grouped), 2)
         self.assertEqual([len(piece["links"]) for piece in grouped], [1, 1])
+        self.assertEqual(grouped[0]["links"][0]["sourcePage"], 2)
+        self.assertEqual(grouped[1]["links"][0]["sourcePage"], 5)
+
+    def test_retains_annotation_location_for_note_link_navigation(self):
+        grouped = group_entries(
+            [entry("The Little Litany", "KAZAN", "litany.pdf", page=3, top=47.5)]
+        )
+
+        link = grouped[0]["links"][0]
+        self.assertEqual(link["sourcePage"], 3)
+        self.assertEqual(link["sourceTop"], 47.5)
 
 
 if __name__ == "__main__":

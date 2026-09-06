@@ -63,6 +63,7 @@ async function renderVisiblePage(record, shell) {
     const page = await record.document.getPage(Number(shell.dataset.page));
     if (generation !== record.generation || renderRevision !== record.renderRevision) return;
     const natural = page.getViewport({ scale: 1 });
+    installLinkAnnotations(record, page, shell, natural);
     const cssScale = shell.clientWidth / natural.width;
     // Keep text and notation sharp after PDF zoom without letting a large zoom
     // allocate an unbounded canvas on high-density mobile screens.
@@ -96,6 +97,50 @@ async function renderVisiblePage(record, shell) {
       canvas.dataset.state = canvas.width > 1 ? "rendered" : "idle";
       console.error(error);
     }
+  }
+}
+
+async function installLinkAnnotations(record, page, shell, viewport) {
+  if (!record.onLink || shell.dataset.linksLoaded === "true") return;
+  shell.dataset.linksLoaded = "true";
+  try {
+    const annotations = await page.getAnnotations({ intent: "display" });
+    if (views.get(record.pagesElement) !== record) return;
+    annotations.forEach((annotation) => {
+      const url = annotation.url || annotation.unsafeUrl;
+      if (annotation.annotationType !== pdfjsLib.AnnotationType.LINK || !url || !annotation.rect) return;
+      const [a, b, c, d, e, f] = viewport.transform;
+      const transformPoint = (x, y) => [a * x + c * y + e, b * x + d * y + f];
+      const firstCorner = transformPoint(annotation.rect[0], annotation.rect[1]);
+      const secondCorner = transformPoint(annotation.rect[2], annotation.rect[3]);
+      const rectangle = [...firstCorner, ...secondCorner];
+      const left = Math.min(rectangle[0], rectangle[2]);
+      const top = Math.min(rectangle[1], rectangle[3]);
+      const width = Math.abs(rectangle[2] - rectangle[0]);
+      const height = Math.abs(rectangle[3] - rectangle[1]);
+      const link = document.createElement("a");
+      link.className = "pdf-link";
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.setAttribute("aria-label", "Open linked music");
+      link.style.left = `${left / viewport.width * 100}%`;
+      link.style.top = `${top / viewport.height * 100}%`;
+      link.style.width = `${width / viewport.width * 100}%`;
+      link.style.height = `${height / viewport.height * 100}%`;
+      link.addEventListener("click", (event) => {
+        const handled = record.onLink({
+          url,
+          page: Number(shell.dataset.page),
+          top,
+        });
+        if (handled !== false) event.preventDefault();
+      });
+      shell.append(link);
+    });
+  } catch (error) {
+    shell.dataset.linksLoaded = "false";
+    console.error(error);
   }
 }
 
@@ -506,10 +551,11 @@ function dispose(record) {
   }
 }
 
-export async function showPdf(url, pagesElement, messageElement, loadingText = "Loading…") {
+export async function showPdf(url, pagesElement, messageElement, loadingText = "Loading…", onLink = null) {
   const absoluteUrl = new URL(url, window.location.href).href;
   const existing = views.get(pagesElement);
   if (existing?.url === absoluteUrl) {
+    existing.onLink = onLink;
     if (messageElement) messageElement.textContent = "";
     return;
   }
@@ -534,6 +580,7 @@ export async function showPdf(url, pagesElement, messageElement, loadingText = "
     lastTouchDoubleAt: -Infinity,
     doubleTapRestore: null,
     scrollRevision: 0,
+    onLink,
   };
   views.set(pagesElement, record);
   pagesElement.replaceChildren();

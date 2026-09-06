@@ -104,6 +104,8 @@ service-text label `(twelve times)` is the one explicit exception: it uses `Defa
 and inherits the preceding centered section heading as its title.
 
 The `Notes` button switches between the current service text and the selected music.
+Tapping an embedded music link in the Notes view switches directly to that hymn and
+setting in the Music view instead of opening or downloading the linked PDF.
 Every service and music PDF remembers its own reading position for the current browser
 session. A PDF not previously opened starts at the top. Pages outside the nearby screen
 area are released from memory so repeated switching remains practical on tablets.

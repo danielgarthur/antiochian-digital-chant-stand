@@ -226,6 +226,7 @@ button:disabled { cursor: default; opacity: .28; }
 .pages[hidden] { display: none; }
 
 .pdf-page-shell {
+  position: relative;
   width: var(--pdf-page-width, min(100%, 1100px));
   margin-inline: auto;
   background: white;
@@ -242,6 +243,17 @@ button:disabled { cursor: default; opacity: .28; }
 }
 
 .pdf-page { display: block; width: 100%; height: 100%; }
+
+.pdf-link {
+  position: absolute;
+  z-index: 1;
+  cursor: pointer;
+}
+
+.pdf-link:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 1px;
+}
 
 .message {
   width: min(34rem, calc(100% - 2rem));
