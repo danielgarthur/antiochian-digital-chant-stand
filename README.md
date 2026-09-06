@@ -95,9 +95,13 @@ line to reveal them. Selecting a service collapses them again.
 
 When a piece has multiple settings, the site prefers `STAM`, `CROW`, `KARAM`,
 `EL MASSIH`, then `CHANT`. Unlisted settings retain their order from the service PDF.
-This list is named `PREFERRED_AUTHORS` near the top of `docs/js/app.js` so it is easy
+This list is named `PREFERRED_SETTINGS` near the top of `docs/js/app.js` so it is easy
 to change by hand. The selected setting appears beside the piece count only when a
 choice is available; tapping it opens the setting chooser.
+
+Linked parenthetical labels become setting names regardless of capitalization. The
+service-text label `(twelve times)` is the one explicit exception: it uses `Default`
+and inherits the preceding centered section heading as its title.
 
 The `Notes` button switches between the current service text and the selected music.
 Every service and music PDF remembers its own reading position for the current browser

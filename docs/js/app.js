@@ -24,15 +24,15 @@ let resizeTimer = null;
 let restoreGeneration = 0;
 let restoringPosition = false;
 
-// Earlier entries win. Authors not listed here keep their source-document order.
-const PREFERRED_AUTHORS = ["STAM", "CROW", "KARAM", "EL MASSIH", "CHANT"];
+// Earlier entries win. Settings not listed here keep their source-document order.
+const PREFERRED_SETTINGS = ["STAM", "CROW", "KARAM", "EL MASSIH", "CHANT"];
 
 function preferredSettingIndex(piece) {
   if (!piece?.links.length) return 0;
   let bestIndex = 0;
   let bestRank = Infinity;
   piece.links.forEach((link, index) => {
-    const rank = PREFERRED_AUTHORS.indexOf(link.author.toUpperCase());
+    const rank = PREFERRED_SETTINGS.indexOf(link.setting.toUpperCase());
     if (rank >= 0 && rank < bestRank) {
       bestIndex = index;
       bestRank = rank;
@@ -290,17 +290,17 @@ function render() {
   }
 
   elements.settingButton.hidden = piece.links.length < 2;
-  elements.settingButton.textContent = `${piece.links[settingIndex].author} ▾`;
+  elements.settingButton.textContent = `${piece.links[settingIndex].setting} ▾`;
   elements.settingButton.setAttribute(
     "aria-label",
-    `Setting: ${piece.links[settingIndex].author}. Choose another setting`
+    `Setting: ${piece.links[settingIndex].setting}. Choose another setting`
   );
 
   piece.links.forEach((link, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `setting${index === settingIndex ? " selected" : ""}`;
-    button.textContent = link.author;
+    button.textContent = link.setting;
     button.setAttribute("aria-pressed", String(index === settingIndex));
     button.addEventListener("click", () => {
       rememberPosition("music");

@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from extract_music_links import group_entries
+import pymupdf as fitz
+
+from extract_music_links import clean_setting, extract_entries, group_entries
 
 
-def entry(title, author, url, page=1, top=10):
+def entry(title, setting, url, page=1, top=10):
     return {
         "title": title,
-        "author": author,
+        "setting": setting,
         "sourceUrl": url,
         "page": page,
         "top": top,
@@ -16,6 +20,36 @@ def entry(title, author, url, page=1, top=10):
 
 
 class GroupEntriesTests(unittest.TestCase):
+    def test_setting_names_do_not_depend_on_capitalization(self):
+        self.assertEqual(clean_setting("(KAZAN)"), "KAZAN")
+        self.assertEqual(clean_setting("(Kazan)"), "Kazan")
+        self.assertEqual(clean_setting("(Karam)"), "Karam")
+
+    def test_twelve_times_is_the_default_setting(self):
+        self.assertEqual(clean_setting("(twelve times)"), "Default")
+
+    def test_twelve_times_uses_the_previous_section_heading(self):
+        with TemporaryDirectory() as directory:
+            pdf_path = Path(directory) / "service.pdf"
+            document = fitz.open()
+            page = document.new_page(width=612, height=792)
+            page.insert_text((245, 100), "THE INTERCESSION", fontsize=12)
+            page.insert_text((220, 300), "Lord, have mercy. (twelve times)", fontsize=12)
+            page.insert_link(
+                {
+                    "kind": fitz.LINK_URI,
+                    "from": fitz.Rect(318, 286, 394, 304),
+                    "uri": "https://example.com/music.pdf",
+                }
+            )
+            document.save(pdf_path)
+            document.close()
+
+            entries = extract_entries(pdf_path)
+
+        self.assertEqual(entries[0]["title"], "THE INTERCESSION")
+        self.assertEqual(entries[0]["setting"], "Default")
+
     def test_groups_settings_on_the_same_printed_line(self):
         grouped = group_entries(
             [
@@ -25,7 +59,7 @@ class GroupEntriesTests(unittest.TestCase):
         )
 
         self.assertEqual(len(grouped), 1)
-        self.assertEqual([link["author"] for link in grouped[0]["links"]], ["KAZAN", "CROW"])
+        self.assertEqual([link["setting"] for link in grouped[0]["links"]], ["KAZAN", "CROW"])
 
     def test_keeps_repeated_titles_in_service_order(self):
         grouped = group_entries(

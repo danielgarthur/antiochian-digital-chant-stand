@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlparse
 
 import pymupdf as fitz
 
-DEFAULT_AUTHOR = "Default"
+DEFAULT_SETTING = "Default"
 
 
 def normalize_space(text: str) -> str:
@@ -66,15 +66,49 @@ def previous_line(page: fitz.Page, rect: fitz.Rect) -> str:
     return min(candidates, default=(0, "Untitled"))[1]
 
 
-def clean_author(link_text: str) -> str:
-    """Convert ``(KAZAN)`` to ``KAZAN``; use Default otherwise."""
+def parenthesized_label(link_text: str) -> str | None:
     match = re.search(r"\(([^()]+)\)", normalize_space(link_text))
-    if not match:
-        return DEFAULT_AUTHOR
-    author = match.group(1).strip()
-    if author.startswith("**") or any(character.islower() for character in author):
-        return DEFAULT_AUTHOR
-    return author or DEFAULT_AUTHOR
+    return match.group(1).strip() if match else None
+
+
+def clean_setting(link_text: str) -> str:
+    """Use a parenthesized link label as its setting name when available."""
+    setting = parenthesized_label(link_text)
+    if setting is None:
+        return DEFAULT_SETTING
+    if setting.casefold() == "twelve times" or setting.startswith("**"):
+        return DEFAULT_SETTING
+    return setting or DEFAULT_SETTING
+
+
+def previous_section_heading(page: fitz.Page, rect: fitz.Rect) -> str | None:
+    """Return the most recent centered, uppercase section heading above a link."""
+    candidates: list[tuple[float, str]] = []
+    page_center = page.rect.width / 2
+    for block in page.get_text("dict").get("blocks", []):
+        for line in block.get("lines", []):
+            line_rect = fitz.Rect(line["bbox"])
+            if line_rect.y1 > rect.y0:
+                continue
+            spans = line.get("spans", [])
+            if not spans:
+                continue
+            largest_size = max(span.get("size", 0) for span in spans)
+            text = normalize_space(
+                "".join(
+                    span.get("text", "")
+                    for span in spans
+                    if span.get("size", 0) >= largest_size * 0.8
+                )
+            )
+            letters = [character for character in text if character.isalpha()]
+            centered = (
+                abs((line_rect.x0 + line_rect.x1) / 2 - page_center)
+                <= page.rect.width * 0.12
+            )
+            if letters and text.upper() == text and centered:
+                candidates.append((line_rect.y1, text))
+    return max(candidates, default=(0, None))[1]
 
 
 def clean_title(heading: str) -> str:
@@ -109,13 +143,17 @@ def extract_entries(pdf_path: Path) -> list[dict]:
                 if not is_pdf_url(source_url):
                     continue
                 rect = fitz.Rect(link["from"])
+                link_text = intersecting_text(page, rect)
                 title = clean_title(nearest_line(page, rect))
                 if title == "Untitled":
                     title = clean_title(previous_line(page, rect))
+                label = parenthesized_label(link_text)
+                if label and label.casefold() == "twelve times":
+                    title = previous_section_heading(page, rect) or title
                 entries.append(
                     {
                         "title": title,
-                        "author": clean_author(intersecting_text(page, rect)),
+                        "setting": clean_setting(link_text),
                         "sourceUrl": source_url,
                         "page": page_number,
                         # Settings for one piece are separate annotations on the
@@ -156,11 +194,11 @@ def group_entries(entries: list[dict]) -> list[dict]:
             current_page = page
             current_top = top
             seen_links = set()
-        link_key = (entry["author"].casefold(), entry["sourceUrl"])
+        link_key = (entry["setting"].casefold(), entry["sourceUrl"])
         if link_key in seen_links:
             continue
         seen_links.add(link_key)
         grouped[-1]["links"].append(
-            {"author": entry["author"], "sourceUrl": entry["sourceUrl"]}
+            {"setting": entry["setting"], "sourceUrl": entry["sourceUrl"]}
         )
     return grouped
