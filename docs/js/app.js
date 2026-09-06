@@ -1,4 +1,4 @@
-import { clearPdf, showPdf } from "./pdf-viewer.js?v=071190a72fce";
+import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=1faf33aa58fc";
 
 const elements = Object.fromEntries(
   [
@@ -150,29 +150,32 @@ function restorePosition(mode, url) {
   const pages = pagesFor(mode);
   const generation = ++restoreGeneration;
   restoringPosition = true;
+  if (viewMode !== mode || urlFor(mode) !== url) {
+    restoringPosition = false;
+    return;
+  }
+
+  // Restore before the browser paints the newly selected view. Waiting for
+  // animation frames here exposes the scroll clamp caused by hiding a long
+  // document, which looks like the PDF flashing over the sticky controls.
+  const savedPosition = savedPositions.get(url);
+  let top = 0;
+  if (savedPosition?.page === 0) {
+    top = savedPosition.offset;
+  } else if (savedPosition) {
+    const shell = pages.querySelector(`[data-page="${savedPosition.page}"]`);
+    if (shell) {
+      const readingLine = document.querySelector(".controls").getBoundingClientRect().bottom;
+      const bounds = shell.getBoundingClientRect();
+      top = window.scrollY + bounds.top
+        + savedPosition.progress * bounds.height - readingLine;
+    }
+  }
+  window.scrollTo({ top });
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (generation !== restoreGeneration || viewMode !== mode || urlFor(mode) !== url) return;
-      const savedPosition = savedPositions.get(url);
-      let top = 0;
-      if (savedPosition?.page === 0) {
-        top = savedPosition.offset;
-      } else if (savedPosition) {
-        const shell = pages.querySelector(`[data-page="${savedPosition.page}"]`);
-        if (shell) {
-          const readingLine = document.querySelector(".controls").getBoundingClientRect().bottom;
-          const bounds = shell.getBoundingClientRect();
-          top = window.scrollY + bounds.top
-            + savedPosition.progress * bounds.height - readingLine;
-        }
-      }
-      window.scrollTo({ top });
-      requestAnimationFrame(() => {
-        if (generation !== restoreGeneration) return;
-        restoringPosition = false;
-        rememberPosition(mode);
-      });
-    });
+    if (generation !== restoreGeneration) return;
+    restoringPosition = false;
+    rememberPosition(mode);
   });
 }
 
@@ -196,6 +199,8 @@ window.addEventListener("resize", () => {
   resizeTimer = setTimeout(() => {
     resizeTimer = null;
     viewportWidth = window.innerWidth;
+    resizePdf(elements.musicPages);
+    resizePdf(elements.notesPages);
     const url = urlFor(viewMode);
     if (url) restorePosition(viewMode, url);
     else restoringPosition = false;
