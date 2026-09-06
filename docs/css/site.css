@@ -106,13 +106,18 @@ button:disabled { cursor: default; opacity: .28; }
   gap: .35rem;
 }
 
-.music-row { align-items: start; }
+.music-row {
+  --music-control-height: 2.7rem;
+  align-items: start;
+}
 
 .date-row { color: white; background: #41544a; border-radius: .4rem; }
 
 .service-row { border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
 
 .arrow {
+  display: grid;
+  place-items: center;
   min-width: 3rem;
   min-height: 2.7rem;
   border: 0;
@@ -143,7 +148,7 @@ button:disabled { cursor: default; opacity: .28; }
 
 #musicSelect {
   width: 100%;
-  min-height: 2.7rem;
+  height: var(--music-control-height);
   padding: .35rem 2rem .35rem .6rem;
   border: 1px solid #aeb5af;
   border-radius: .35rem;
@@ -152,6 +157,8 @@ button:disabled { cursor: default; opacity: .28; }
   font-weight: 650;
   text-overflow: ellipsis;
 }
+
+.music-row > .arrow { height: var(--music-control-height); }
 
 #musicPosition { color: #657068; font-size: .68rem; }
 
@@ -300,6 +307,7 @@ button:disabled { cursor: default; opacity: .28; }
 @media (orientation: landscape) and (max-height: 700px) {
   .controls { padding-top: .25rem; }
   .nav-row, .music-row { margin-bottom: .2rem; }
+  .music-row { --music-control-height: 2.35rem; }
   .arrow, #musicSelect { min-height: 2.35rem; }
 }
 
