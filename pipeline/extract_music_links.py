@@ -118,27 +118,49 @@ def extract_entries(pdf_path: Path) -> list[dict]:
                         "author": clean_author(intersecting_text(page, rect)),
                         "sourceUrl": source_url,
                         "page": page_number,
+                        # Settings for one piece are separate annotations on the
+                        # same printed line.  Retain their vertical position so
+                        # grouping can distinguish a later occurrence with the
+                        # same title (and even the same linked PDF).
+                        "top": rect.y0,
                     }
                 )
     return entries
 
 
 def group_entries(entries: list[dict]) -> list[dict]:
-    """Group settings under the first occurrence of each title, preserving order."""
+    """Group settings for each printed occurrence, preserving service order."""
     grouped: list[dict] = []
-    positions: dict[str, int] = {}
-    seen_links: set[tuple[str, str, str]] = set()
+    current_key: str | None = None
+    current_page: int | None = None
+    current_top: float | None = None
+    seen_links: set[tuple[str, str]] = set()
     for entry in entries:
         title = entry["title"]
         key = normalize_space(title).casefold()
-        if key not in positions:
-            positions[key] = len(grouped)
+        page = entry.get("page")
+        top = entry.get("top")
+        same_printed_line = (
+            key == current_key
+            and (
+                page is None
+                or top is None
+                or current_page is None
+                or current_top is None
+                or (page == current_page and abs(top - current_top) <= 2)
+            )
+        )
+        if not same_printed_line:
             grouped.append({"title": title, "links": []})
-        link_key = (key, entry["author"].casefold(), entry["sourceUrl"])
+            current_key = key
+            current_page = page
+            current_top = top
+            seen_links = set()
+        link_key = (entry["author"].casefold(), entry["sourceUrl"])
         if link_key in seen_links:
             continue
         seen_links.add(link_key)
-        grouped[positions[key]]["links"].append(
+        grouped[-1]["links"].append(
             {"author": entry["author"], "sourceUrl": entry["sourceUrl"]}
         )
     return grouped
