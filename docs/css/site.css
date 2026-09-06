@@ -94,6 +94,8 @@ button:disabled { cursor: default; opacity: .28; }
   gap: .35rem;
 }
 
+.music-row { align-items: start; }
+
 .date-row { color: white; background: #41544a; border-radius: .4rem; }
 
 .service-row { border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
