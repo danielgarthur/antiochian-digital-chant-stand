@@ -11,6 +11,7 @@ import shutil
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import quote, unquote, urlparse
 
 import requests
@@ -38,6 +39,7 @@ PDFJS_FILES = {
     "pdf.min.mjs": f"https://cdn.jsdelivr.net/npm/pdfjs-dist@{PDFJS_VERSION}/build/pdf.min.mjs",
     "pdf.worker.min.mjs": f"https://cdn.jsdelivr.net/npm/pdfjs-dist@{PDFJS_VERSION}/build/pdf.worker.min.mjs",
 }
+PDFJS_VERSION_FILE = ".version"
 
 
 def short_file_hash(path: Path) -> str:
@@ -245,14 +247,30 @@ def prune_published_pdfs(services: list[dict]) -> None:
 def ensure_pdfjs(session: requests.Session) -> None:
     vendor_dir = DOCS_DIR / "vendor" / "pdfjs"
     vendor_dir.mkdir(parents=True, exist_ok=True)
-    for filename, url in PDFJS_FILES.items():
-        destination = vendor_dir / filename
-        if destination.exists():
-            continue
-        print(f"Downloading PDF.js {PDFJS_VERSION}: {filename}")
-        response = session.get(url, timeout=90)
-        response.raise_for_status()
-        destination.write_bytes(response.content)
+    version_path = vendor_dir / PDFJS_VERSION_FILE
+    try:
+        installed_version = version_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        installed_version = None
+    destinations = {filename: vendor_dir / filename for filename in PDFJS_FILES}
+    if installed_version == PDFJS_VERSION and all(path.is_file() for path in destinations.values()):
+        return
+
+    # Download the complete release before replacing either runtime file. The
+    # marker is written last so an interrupted installation is retried.
+    with TemporaryDirectory(dir=vendor_dir) as staging_directory:
+        staging_dir = Path(staging_directory)
+        staged_files = {}
+        for filename, url in PDFJS_FILES.items():
+            print(f"Downloading PDF.js {PDFJS_VERSION}: {filename}")
+            response = session.get(url, timeout=90)
+            response.raise_for_status()
+            staged_path = staging_dir / filename
+            staged_path.write_bytes(response.content)
+            staged_files[filename] = staged_path
+        for filename, staged_path in staged_files.items():
+            staged_path.replace(destinations[filename])
+    version_path.write_text(PDFJS_VERSION + "\n", encoding="utf-8")
 
 
 def build(args: argparse.Namespace) -> None:

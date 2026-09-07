@@ -8,6 +8,7 @@ docs/data/music.json
 docs/pdfs/*.pdf
 docs/services/*.pdf
 docs/vendor/pdfjs/*.mjs
+docs/vendor/pdfjs/.version
 
 !pipeline/input/.gitkeep
 !docs/data/.gitkeep

@@ -126,6 +126,80 @@ class BuildLibraryTests(unittest.TestCase):
             self.assertEqual((pdf_dir / "cached.pdf").read_bytes(), b"%PDF cached")
             session.get.assert_not_called()
 
+    def test_pdfjs_matching_version_and_complete_files_are_reused(self):
+        with TemporaryDirectory() as directory:
+            docs_dir = Path(directory) / "docs"
+            vendor_dir = docs_dir / "vendor" / "pdfjs"
+            vendor_dir.mkdir(parents=True)
+            (vendor_dir / build_library.PDFJS_VERSION_FILE).write_text(
+                build_library.PDFJS_VERSION + "\n", encoding="utf-8"
+            )
+            for filename in build_library.PDFJS_FILES:
+                (vendor_dir / filename).write_bytes(filename.encode())
+            session = Mock()
+
+            with patch.object(build_library, "DOCS_DIR", docs_dir):
+                build_library.ensure_pdfjs(session)
+
+            session.get.assert_not_called()
+
+    def test_pdfjs_version_change_replaces_the_complete_release(self):
+        with TemporaryDirectory() as directory:
+            docs_dir = Path(directory) / "docs"
+            vendor_dir = docs_dir / "vendor" / "pdfjs"
+            vendor_dir.mkdir(parents=True)
+            (vendor_dir / build_library.PDFJS_VERSION_FILE).write_text(
+                "older-version\n", encoding="utf-8"
+            )
+            for filename in build_library.PDFJS_FILES:
+                (vendor_dir / filename).write_bytes(b"old")
+            responses = []
+            for filename in build_library.PDFJS_FILES:
+                response = Mock()
+                response.content = f"new {filename}".encode()
+                responses.append(response)
+            session = Mock()
+            session.get.side_effect = responses
+
+            with patch.object(build_library, "DOCS_DIR", docs_dir):
+                build_library.ensure_pdfjs(session)
+
+            self.assertEqual(session.get.call_count, len(build_library.PDFJS_FILES))
+            for filename in build_library.PDFJS_FILES:
+                self.assertEqual((vendor_dir / filename).read_bytes(), f"new {filename}".encode())
+            self.assertEqual(
+                (vendor_dir / build_library.PDFJS_VERSION_FILE).read_text(encoding="utf-8"),
+                build_library.PDFJS_VERSION + "\n",
+            )
+
+    def test_pdfjs_failed_upgrade_keeps_the_existing_release_and_version(self):
+        with TemporaryDirectory() as directory:
+            docs_dir = Path(directory) / "docs"
+            vendor_dir = docs_dir / "vendor" / "pdfjs"
+            vendor_dir.mkdir(parents=True)
+            version_path = vendor_dir / build_library.PDFJS_VERSION_FILE
+            version_path.write_text("older-version\n", encoding="utf-8")
+            for filename in build_library.PDFJS_FILES:
+                (vendor_dir / filename).write_bytes(f"old {filename}".encode())
+            first_response = Mock()
+            first_response.content = b"new first file"
+            failed_response = Mock()
+            failed_response.raise_for_status.side_effect = RuntimeError("download failed")
+            session = Mock()
+            session.get.side_effect = [first_response, failed_response]
+
+            with (
+                patch.object(build_library, "DOCS_DIR", docs_dir),
+                self.assertRaisesRegex(RuntimeError, "download failed"),
+            ):
+                build_library.ensure_pdfjs(session)
+
+            self.assertEqual(version_path.read_text(encoding="utf-8"), "older-version\n")
+            for filename in build_library.PDFJS_FILES:
+                self.assertEqual(
+                    (vendor_dir / filename).read_bytes(), f"old {filename}".encode()
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
