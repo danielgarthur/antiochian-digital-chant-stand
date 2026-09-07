@@ -1,2 +1,2 @@
-PyMuPDF
-requests
+PyMuPDF==1.28.2
+requests==2.34.2
