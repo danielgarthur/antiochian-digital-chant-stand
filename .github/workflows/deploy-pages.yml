@@ -40,6 +40,12 @@ jobs:
           python-version: "3.13"
           cache: pip
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -72,6 +78,14 @@ jobs:
 
       - name: Validate generated site
         run: python pipeline/validate_site.py
+
+      - name: Install UI test dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run UI tests
+        run: npm run test:ui
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

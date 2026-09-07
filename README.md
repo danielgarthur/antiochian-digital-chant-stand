@@ -72,6 +72,18 @@ Then open <http://localhost:8000>.
 Run `python pipeline/validate_site.py` for the same pre-deployment validation used by
 GitHub Actions.
 
+Run the browser-level UI tests with:
+
+```sh
+npm ci
+npx playwright install chromium
+npm run test:ui
+```
+
+The UI suite uses deterministic service data and a lightweight PDF-viewer substitute.
+It covers navigation, settings, embedded music links, browser history, saved reading
+positions, and a mobile viewport without downloading live service files.
+
 ## GitHub Pages deployment
 
 `.github/workflows/deploy-pages.yml` builds and deploys the site without committing any
