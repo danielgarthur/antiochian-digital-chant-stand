@@ -169,14 +169,11 @@ function chooseInitialService() {
   return services.indexOf(future || dated[dated.length - 1] || services[0]);
 }
 
-function setService(index, preferredTitle = null) {
+function setService(index) {
   rememberPosition(viewMode);
   serviceIndex = index;
   const music = services[serviceIndex]?.music || [];
-  const matchingIndex = preferredTitle
-    ? music.findIndex((piece) => piece.title === preferredTitle)
-    : -1;
-  musicIndex = matchingIndex >= 0 ? matchingIndex : 0;
+  musicIndex = 0;
   settingIndex = preferredSettingIndex(music[musicIndex]);
   render("push");
 }
@@ -582,7 +579,6 @@ try {
       day
     ))
   );
-  serviceIndex = chooseInitialService();
   restoreUrlChoice();
   render("replace");
 } catch (error) {
