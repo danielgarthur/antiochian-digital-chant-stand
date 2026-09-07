@@ -17,15 +17,117 @@ let settingIndex = 0;
 let viewMode = "notes";
 let activeMusicUrl = null;
 let activeNotesUrl = null;
-const savedPositions = new Map();
+const POSITION_STORAGE_KEY = "antiochian-chant-stand:positions:v1";
+const POSITION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const MAX_SAVED_POSITIONS = 100;
+const POSITION_SAVE_DELAY_MS = 1000;
+const savedPositions = loadSavedPositions();
 let viewportWidth = window.innerWidth;
 let scrollFrame = null;
 let resizeTimer = null;
 let restoreGeneration = 0;
 let restoringPosition = false;
+let positionSaveTimer = null;
+let positionsDirty = false;
 
 // Earlier entries win. Settings not listed here keep their source-document order.
 const PREFERRED_SETTINGS = ["STAM", "CROW", "KARAM", "EL MASSIH", "CHANT"];
+
+function validSavedPosition(position, now) {
+  if (
+    !position || !Number.isInteger(position.page) || position.page < 0
+    || !Number.isFinite(position.updatedAt)
+    || position.updatedAt < now - POSITION_TTL_MS
+    || position.updatedAt > now + 24 * 60 * 60 * 1000
+  ) return false;
+  if (position.page === 0) return Number.isFinite(position.offset) && position.offset >= 0;
+  return Number.isFinite(position.progress);
+}
+
+function normalizedPositionEntries(entries, now = Date.now()) {
+  const newestByUrl = new Map();
+  if (Array.isArray(entries)) {
+    entries.forEach((entry) => {
+      if (!Array.isArray(entry) || typeof entry[0] !== "string") return;
+      const [url, position] = entry;
+      if (!validSavedPosition(position, now)) return;
+      const normalized = position.page === 0
+        ? { page: 0, offset: position.offset, updatedAt: position.updatedAt }
+        : { page: position.page, progress: position.progress, updatedAt: position.updatedAt };
+      const existing = newestByUrl.get(url);
+      if (!existing || normalized.updatedAt > existing.updatedAt) {
+        newestByUrl.set(url, normalized);
+      }
+    });
+  }
+  return [...newestByUrl.entries()]
+    .sort((left, right) => right[1].updatedAt - left[1].updatedAt)
+    .slice(0, MAX_SAVED_POSITIONS);
+}
+
+function loadSavedPositions() {
+  let stored;
+  try {
+    stored = localStorage.getItem(POSITION_STORAGE_KEY);
+  } catch (error) {
+    console.warn("Could not load saved reading positions.", error);
+    return new Map();
+  }
+  if (!stored) return new Map();
+
+  let entries;
+  try {
+    entries = normalizedPositionEntries(JSON.parse(stored)?.entries);
+  } catch (error) {
+    console.warn("Could not parse saved reading positions.", error);
+    try {
+      localStorage.removeItem(POSITION_STORAGE_KEY);
+    } catch {
+      // Storage can be disabled even if an earlier read succeeded.
+    }
+    return new Map();
+  }
+
+  try {
+    if (entries.length) {
+      localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify({ entries }));
+    } else {
+      localStorage.removeItem(POSITION_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn("Could not prune saved reading positions.", error);
+  }
+  return new Map(entries);
+}
+
+function persistSavedPositions() {
+  if (positionSaveTimer !== null) {
+    clearTimeout(positionSaveTimer);
+    positionSaveTimer = null;
+  }
+  if (!positionsDirty) return;
+  positionsDirty = false;
+
+  const entries = normalizedPositionEntries([...savedPositions.entries()]);
+  savedPositions.clear();
+  entries.forEach(([url, position]) => savedPositions.set(url, position));
+  try {
+    if (entries.length) {
+      localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify({ entries }));
+    } else {
+      localStorage.removeItem(POSITION_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn("Could not save reading positions.", error);
+  }
+}
+
+function savePosition(url, position) {
+  savedPositions.set(url, { ...position, updatedAt: Date.now() });
+  positionsDirty = true;
+  if (positionSaveTimer !== null) clearTimeout(positionSaveTimer);
+  positionSaveTimer = setTimeout(persistSavedPositions, POSITION_SAVE_DELAY_MS);
+}
 
 function preferredSettingIndex(piece) {
   if (!piece?.links.length) return 0;
@@ -137,12 +239,12 @@ function rememberPosition(mode) {
   }
 
   if (!shell) {
-    savedPositions.set(url, { page: 0, offset: window.scrollY });
+    savePosition(url, { page: 0, offset: window.scrollY });
     return;
   }
 
   const bounds = shell.getBoundingClientRect();
-  savedPositions.set(url, {
+  savePosition(url, {
     page: Number(shell.dataset.page),
     progress: bounds.height ? (readingLine - bounds.top) / bounds.height : 0,
   });
@@ -189,6 +291,20 @@ window.addEventListener("scroll", () => {
     if (!restoringPosition && window.innerWidth === viewportWidth) rememberPosition(viewMode);
   });
 }, { passive: true });
+
+function flushCurrentPosition() {
+  if (scrollFrame !== null) {
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = null;
+  }
+  rememberPosition(viewMode);
+  persistSavedPositions();
+}
+
+window.addEventListener("pagehide", flushCurrentPosition);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushCurrentPosition();
+});
 
 window.addEventListener("resize", () => {
   if (window.innerWidth === viewportWidth && resizeTimer === null) return;
