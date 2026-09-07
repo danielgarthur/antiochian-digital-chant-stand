@@ -247,10 +247,11 @@ function selectMusicLink(annotation) {
       < Math.abs(closest.link.sourceTop - annotation.top) ? candidate : closest;
   });
 
-  setViewMode("music");
   musicIndex = selected.pieceIndex;
   settingIndex = selected.linkIndex;
-  render("push");
+  updateUrl("push", "music");
+  setViewMode("music");
+  render("none");
   return true;
 }
 
@@ -388,7 +389,7 @@ function render(historyMode = "none") {
   updateUrl(historyMode);
 }
 
-function updateUrl(mode) {
+function updateUrl(mode, targetView = viewMode) {
   const service = services[serviceIndex];
   if (!service) return;
   const parameters = new URLSearchParams({
@@ -396,7 +397,7 @@ function updateUrl(mode) {
     service: service.type,
     music: String(musicIndex),
     setting: String(settingIndex),
-    view: viewMode,
+    view: targetView,
   });
   const url = `${location.pathname}?${parameters}`;
   const currentUrl = `${location.pathname}${location.search}`;
