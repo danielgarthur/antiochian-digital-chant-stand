@@ -201,7 +201,6 @@ def download_music(
     local_url = f"pdfs/{filename}"
     cache["music"][source_url] = {
         "url": local_url,
-        "sha256": digest,
         "etag": response.headers.get("ETag"),
         "lastModified": response.headers.get("Last-Modified"),
         "checkedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -261,7 +260,6 @@ def build(args: argparse.Namespace) -> None:
                 "date": day,
                 "type": service_type,
                 "label": label,
-                "sourceFile": source_pdf.name,
                 "url": publish_service_pdf(source_pdf),
                 "music": music,
             }
@@ -275,10 +273,7 @@ def build(args: argparse.Namespace) -> None:
             order.get(item["type"], 99),
         )
     )
-    payload = {
-        "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "services": services,
-    }
+    payload = {"services": services}
     (DATA_DIR / "music.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
