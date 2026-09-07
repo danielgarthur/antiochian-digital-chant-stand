@@ -2,6 +2,7 @@
   "name": "antiochian-digital-chant-stand",
   "private": true,
   "scripts": {
+    "dev": ".venv/bin/python pipeline/serve_local.py",
     "test:ui": "playwright test"
   },
   "devDependencies": {

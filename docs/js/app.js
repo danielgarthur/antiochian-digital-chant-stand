@@ -2,7 +2,7 @@ import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=a11623e46cbe";
 
 const elements = Object.fromEntries(
   [
-    "scheduleLabel", "previousDay", "dateSelect", "nextDay", "dateLabel", "previousService",
+    "schedule", "scheduleDay", "scheduleService", "previousDay", "dateSelect", "nextDay", "dateLabel", "previousService",
     "nextService", "serviceTabs", "previousMusic", "nextMusic",
     "musicSelect", "musicPosition", "settingButton", "settingsDialog",
     "closeSettings", "settings", "viewToggle", "notesIcon", "musicIcon", "musicPages", "notesPages", "message",
@@ -150,6 +150,41 @@ const localDate = () => {
 
 const servicesOn = (day) => services.filter((service) => service.date === day);
 
+function preferredService(candidates, predicate) {
+  return candidates.find((service) => !service.type.startsWith("BILINGUAL_") && predicate(service))
+    || candidates.find(predicate);
+}
+
+function preferredOrthros(candidates) {
+  return preferredService(candidates, (service) => service.type === "ORTHROS" || service.type.endsWith("_ORTHROS"));
+}
+
+function preferredLiturgy(candidates) {
+  return preferredService(candidates, (service) => (
+    service.type === "READ"
+    || service.type === "LITURGY"
+    || service.type.includes("DIVINE_LITURGY")
+  ));
+}
+
+function preferredGreatVespers(candidates) {
+  return preferredService(candidates, (service) => (
+    service.type === "GREAT_VESPERS"
+    || service.type === "VESP"
+    || service.type.endsWith("_GREAT_VESPERS")
+  ));
+}
+
+function preferredServiceForDay(candidates, day) {
+  const dayOfWeek = new Date(`${day}T12:00:00Z`).getUTCDay();
+  const orthros = preferredOrthros(candidates);
+  const liturgy = preferredLiturgy(candidates);
+  const greatVespers = preferredGreatVespers(candidates);
+  return dayOfWeek === 6
+    ? greatVespers || orthros || liturgy || candidates[0]
+    : orthros || liturgy || greatVespers || candidates[0];
+}
+
 function formatDay(value) {
   if (!value) return "Other music";
   return new Intl.DateTimeFormat(undefined, {
@@ -161,8 +196,7 @@ function chooseInitialService() {
   if (!services.length) return -1;
   const todayServices = servicesOn(localDate());
   if (todayServices.length) {
-    const preferred = todayServices.find((service) => service.type === "ORTHROS") || todayServices[0];
-    return services.indexOf(preferred);
+    return services.indexOf(preferredServiceForDay(todayServices, localDate()));
   }
   const dated = services.filter((service) => service.date);
   const future = dated.find((service) => service.date > localDate());
@@ -179,11 +213,9 @@ function setService(index) {
 }
 
 function selectDay(day) {
-  const service = services[serviceIndex];
   const candidates = servicesOn(day);
   if (!candidates.length) return;
-  const sameType = candidates.find((item) => item.type === service?.type);
-  setService(services.indexOf(sameType || candidates[0]));
+  setService(services.indexOf(preferredServiceForDay(candidates, day)));
 }
 
 function moveDay(offset) {
@@ -195,10 +227,41 @@ function moveDay(offset) {
 }
 
 function moveService(offset) {
-  const target = services[serviceIndex + offset];
+  const service = services[serviceIndex];
+  const dayServices = servicesOn(service?.date);
+  const target = dayServices[dayServices.indexOf(service) + offset];
   if (target) {
     setService(services.indexOf(target));
   }
+}
+
+function updateServiceScrollAffordance() {
+  const { clientWidth, scrollLeft, scrollWidth } = elements.serviceTabs;
+  const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
+  elements.serviceTabs.classList.toggle("can-scroll-left", scrollLeft > 1);
+  elements.serviceTabs.classList.toggle("can-scroll-right", scrollLeft < maxScrollLeft - 1);
+}
+
+function revealSelectedService(behavior = "auto", restoreFocus = false) {
+  const selectedTab = elements.serviceTabs.querySelector('[aria-selected="true"]');
+  if (!selectedTab) return;
+  if (restoreFocus) selectedTab?.focus({ preventScroll: true });
+  const stripBounds = elements.serviceTabs.getBoundingClientRect();
+  const tabBounds = selectedTab.getBoundingClientRect();
+  const centeredLeft = elements.serviceTabs.scrollLeft
+    + tabBounds.left - stripBounds.left
+    - (elements.serviceTabs.clientWidth - tabBounds.width) / 2;
+  elements.serviceTabs.scrollTo({ left: centeredLeft, behavior });
+  updateServiceScrollAffordance();
+}
+
+function focusAdjacentServiceTab(currentTab, offset) {
+  const tabs = [...elements.serviceTabs.querySelectorAll('[role="tab"]')];
+  const currentIndex = tabs.indexOf(currentTab);
+  const target = tabs[currentIndex + offset];
+  if (!target) return;
+  target.focus();
+  target.click();
 }
 
 function moveMusic(offset) {
@@ -319,6 +382,7 @@ window.addEventListener("resize", () => {
     const url = urlFor(viewMode);
     if (url) restorePosition(viewMode, url);
     else restoringPosition = false;
+    updateServiceScrollAffordance();
   }, 100);
 });
 
@@ -412,27 +476,45 @@ function render(historyMode = "none") {
   elements.dateLabel.textContent = formatDay(service.date);
   elements.dateSelect.value = service.date || "";
   const compactDay = service.date === localDate() ? "Today" : formatDay(service.date);
-  elements.scheduleLabel.textContent = `${compactDay} · ${service.label}`;
+  elements.scheduleDay.textContent = compactDay;
+  elements.scheduleService.textContent = service.label;
+  const restoreTabFocus = elements.serviceTabs.contains(document.activeElement);
   elements.serviceTabs.replaceChildren(
     ...servicesOn(service.date).map((item) => {
       const selected = item === service;
       const button = document.createElement("button");
+      const label = document.createElement("span");
       button.type = "button";
       button.className = `service-tab${selected ? " selected" : ""}`;
-      button.textContent = item.label;
+      label.className = "service-tab-label";
+      label.textContent = item.label;
+      button.append(label);
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", String(selected));
       button.tabIndex = selected ? 0 : -1;
       button.addEventListener("click", () => setService(services.indexOf(item)));
+      button.addEventListener("keydown", (event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        focusAdjacentServiceTab(button, event.key === "ArrowLeft" ? -1 : 1);
+      });
       return button;
     })
   );
+  requestAnimationFrame(() => {
+    const behavior = historyMode === "push" && !matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "smooth"
+      : "auto";
+    revealSelectedService(behavior, restoreTabFocus);
+  });
   elements.previousDay.disabled = dayPosition <= 0;
   elements.nextDay.disabled = dayPosition < 0 || dayPosition >= datedDays.length - 1;
-  elements.previousService.disabled = serviceIndex <= 0;
-  elements.nextService.disabled = serviceIndex >= services.length - 1;
-  const previousService = services[serviceIndex - 1];
-  const nextService = services[serviceIndex + 1];
+  const dayServices = servicesOn(service.date);
+  const servicePosition = dayServices.indexOf(service);
+  elements.previousService.disabled = servicePosition <= 0;
+  elements.nextService.disabled = servicePosition >= dayServices.length - 1;
+  const previousService = dayServices[servicePosition - 1];
+  const nextService = dayServices[servicePosition + 1];
   elements.previousService.setAttribute(
     "aria-label",
     previousService ? `Previous service: ${previousService.label}, ${formatDay(previousService.date)}` : "Previous service"
@@ -547,6 +629,11 @@ elements.nextDay.addEventListener("click", () => moveDay(1));
 elements.dateSelect.addEventListener("change", (event) => selectDay(event.target.value));
 elements.previousService.addEventListener("click", () => moveService(-1));
 elements.nextService.addEventListener("click", () => moveService(1));
+elements.serviceTabs.addEventListener("scroll", updateServiceScrollAffordance, { passive: true });
+elements.schedule.addEventListener("toggle", () => {
+  if (!elements.schedule.open) return;
+  requestAnimationFrame(() => revealSelectedService());
+});
 elements.previousMusic.addEventListener("click", () => moveMusic(-1));
 elements.nextMusic.addEventListener("click", () => moveMusic(1));
 elements.musicSelect.addEventListener("change", (event) => {

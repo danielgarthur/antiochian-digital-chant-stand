@@ -16,26 +16,40 @@ pip install -r requirements.txt
 ## Build a date range
 
 ```sh
-python pipeline/build_library.py --start 2026-09-05 --end 2026-09-07
+.venv/bin/python pipeline/build_local.py --start 2026-09-05 --end 2026-09-07
 ```
 
 The range is inclusive. When a range is supplied, recognized dated service PDFs
 outside that range are excluded from the generated library, even if they remain in
-`pipeline/input/` from an earlier run. Undated manual inputs are still included. For
-just the current day:
+`pipeline/input/` from an earlier run. In-range and undated manual inputs are included;
+when an in-range manual file duplicates the same date and service family from the current
+API manifest, the API version wins. For just the current day:
 
 ```sh
-python pipeline/build_library.py --today
+.venv/bin/python pipeline/build_local.py --today
 ```
 
-The builder tries `VESP`, `ORTHROS`, and `READ` for each date. Missing/unpublished
-services are skipped. It then extracts the music links, downloads each unique music
-PDF, and writes `docs/data/music.json`.
+The builder obtains a short-lived access token and asks the Archdiocese's
+`LiturgicalTexts/{date}` API for each date. Every entry whose public URL ends in
+`.pdf` is downloaded; entries for other formats such as RTF are ignored. It then
+extracts the music links, downloads each unique music PDF, and writes
+`docs/data/music.json`. If one advertised service PDF cannot be downloaded or is not
+actually a PDF, that service is reported and skipped without aborting the rest of the
+date range.
+
+For local development, `build_local.py` discovers the current credential from the
+JavaScript published by `antiochian.org`, keeps it in process memory, and then runs
+the normal builder. It neither displays nor stores the credential. You can pass it
+the same command-line options as `build_library.py`.
+
+Deployments deliberately do not scrape the frontend. Add `ANTIOCHIAN_CLIENT_SECRET`
+as a GitHub Actions repository secret; the workflow supplies it to
+`build_library.py`. Access tokens are obtained afresh and are never stored.
 
 You can also place service PDFs in `pipeline/input/` by hand and run:
 
 ```sh
-python pipeline/build_library.py
+.venv/bin/python pipeline/build_library.py
 ```
 
 Use the upstream filename convention, such as `Sep 06 2026 ORTHROS.pdf`, so the site
@@ -60,16 +74,19 @@ Generated service PDFs, music PDFs, `music.json`, and the downloaded PDF.js file
 ignored by Git but remain on your computer. To refresh them and preview the result:
 
 ```sh
-python pipeline/build_library.py --start 2026-09-05 --end 2026-09-07
-python3 -m http.server 8000 --directory docs
+.venv/bin/python pipeline/build_local.py --start 2026-09-05 --end 2026-09-07
+npm run dev
 ```
 
 Browsers do not allow the site to fetch JSON from a `file://` URL, so it must be opened
-through the local server rather than by opening `index.html` directly:
+through the local server rather than by opening `index.html` directly. The development
+server refreshes the generated content hashes before startup and disables caching for
+the HTML, application assets, and generated JSON. This avoids stale assets in Safari
+and device simulators while leaving the production cache policy unchanged.
 
 Then open <http://localhost:8000>.
 
-Run `python pipeline/validate_site.py` for the same pre-deployment validation used by
+Run `.venv/bin/python pipeline/validate_site.py` for the same pre-deployment validation used by
 GitHub Actions.
 
 Run the browser-level UI tests with:

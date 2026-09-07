@@ -6,17 +6,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from urllib.parse import quote, unquote, urlparse
+from tempfile import NamedTemporaryFile, TemporaryDirectory
+from urllib.parse import unquote, urlparse
 
 import requests
 
 from extract_music_links import extract_entries, group_entries
+from frontend_versions import update_frontend_versions
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUT_DIR = ROOT / "pipeline" / "input"
@@ -28,49 +30,21 @@ CACHE_PATH = ROOT / "pipeline" / ".download-cache.json"
 MUSIC_CACHE_DIR = ROOT / "pipeline" / ".music-cache"
 CACHE_VERSION = 2
 
-SERVICE_TYPES = ("VESP", "ORTHROS", "READ")
 SERVICE_LABELS = {"VESP": "Vespers", "ORTHROS": "Orthros", "READ": "Liturgy"}
 SERVICE_RE = re.compile(
     r"(?P<date>[A-Z][a-z]{2} \d{2} \d{4})\s+(?P<type>VESP|ORTHROS|READ)\.pdf$",
     re.IGNORECASE,
 )
+ANTIOCHIAN_BASE_URL = "https://www.antiochian.org"
+ANTIOCHIAN_CLIENT_ID = "antiochian_api"
+ANTIOCHIAN_CLIENT_SECRET_ENV = "ANTIOCHIAN_CLIENT_SECRET"
+API_SERVICE_CACHE_PREFIX = "api-service-"
 PDFJS_VERSION = "6.2.108"
 PDFJS_FILES = {
     "pdf.min.mjs": f"https://cdn.jsdelivr.net/npm/pdfjs-dist@{PDFJS_VERSION}/build/pdf.min.mjs",
     "pdf.worker.min.mjs": f"https://cdn.jsdelivr.net/npm/pdfjs-dist@{PDFJS_VERSION}/build/pdf.worker.min.mjs",
 }
 PDFJS_VERSION_FILE = ".version"
-
-
-def short_file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
-
-
-def version_asset_reference(text: str, asset: str, version: str) -> str:
-    """Add or replace a simple content-version query on a local asset URL."""
-    pattern = rf"({re.escape(asset)})(?:\?v=[a-f0-9]+)?"
-    return re.sub(pattern, rf"\g<1>?v={version}", text)
-
-
-def update_frontend_versions() -> None:
-    """Cache-bust editable frontend files while retaining readable filenames."""
-    viewer_path = DOCS_DIR / "js" / "pdf-viewer.js"
-    app_path = DOCS_DIR / "js" / "app.js"
-    css_path = DOCS_DIR / "css" / "site.css"
-    index_path = DOCS_DIR / "index.html"
-
-    # Module imports have their own cache keys, so version the dependency before
-    # hashing the entry module that imports it.
-    viewer_version = short_file_hash(viewer_path)
-    app_text = version_asset_reference(
-        app_path.read_text(encoding="utf-8"), "./pdf-viewer.js", viewer_version
-    )
-    app_path.write_text(app_text, encoding="utf-8")
-
-    index_text = index_path.read_text(encoding="utf-8")
-    index_text = version_asset_reference(index_text, "./css/site.css", short_file_hash(css_path))
-    index_text = version_asset_reference(index_text, "./js/app.js", short_file_hash(app_path))
-    index_path.write_text(index_text, encoding="utf-8")
 
 
 def parse_date(value: str) -> date:
@@ -89,14 +63,80 @@ def dates_between(start: date, end: date):
         current += timedelta(days=1)
 
 
-def service_filename(day: date, service_type: str) -> str:
-    return f"{day.strftime('%b %d %Y')} {service_type}.pdf"
+def api_service_label(type_of_service: str) -> str:
+    """Remove the API's redundant file-format suffix from a display label."""
+    return re.sub(r"\s*\(PDF\)\s*$", "", type_of_service, flags=re.IGNORECASE).strip()
 
 
-def service_url(day: date, service_type: str) -> str:
-    return "https://antiochianprodsa.blob.core.windows.net/servicetexts/" + quote(
-        service_filename(day, service_type)
+def api_service_type(label: str) -> str:
+    """Retain legacy type names where the UI has useful behavior for them."""
+    legacy_types = {
+        "great vespers - sunday evening": "VESP",
+        "sunday orthros": "ORTHROS",
+        "divine liturgy variables": "READ",
+    }
+    if label.casefold() in legacy_types:
+        return legacy_types[label.casefold()]
+    return re.sub(r"[^A-Z0-9]+", "_", label.upper()).strip("_") or "OTHER"
+
+
+def canonical_service_type(service_type: str) -> str:
+    """Map display-specific API types to legacy service families for deduplication."""
+    bilingual = service_type.startswith("BILINGUAL_")
+    unqualified = service_type.removeprefix("BILINGUAL_")
+    if unqualified == "VESP" or unqualified.endswith("_VESPERS"):
+        family = "VESP"
+    elif unqualified == "ORTHROS" or unqualified.endswith("_ORTHROS"):
+        family = "ORTHROS"
+    elif unqualified in {"READ", "LITURGY"} or "DIVINE_LITURGY" in unqualified:
+        family = "READ"
+    else:
+        family = unqualified
+    return f"BILINGUAL_{family}" if bilingual else family
+
+
+def api_pdf_services(payload: object) -> list[dict[str, str]]:
+    """Validate and normalize the PDF entries returned by LiturgicalTexts."""
+    if not isinstance(payload, list):
+        raise ValueError("LiturgicalTexts response was not a list")
+
+    services = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("publicUrl")
+        type_of_service = item.get("typeOfService")
+        if not isinstance(url, str) or not isinstance(type_of_service, str):
+            continue
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.path.lower().endswith(".pdf"):
+            continue
+        label = api_service_label(type_of_service)
+        services.append({"url": url, "label": label, "type": api_service_type(label)})
+    return services
+
+
+def antiochian_access_token(session: requests.Session) -> str:
+    secret = os.environ.get(ANTIOCHIAN_CLIENT_SECRET_ENV)
+    if not secret:
+        raise SystemExit(
+            f"{ANTIOCHIAN_CLIENT_SECRET_ENV} is required when downloading dated services"
+        )
+    response = session.post(
+        f"{ANTIOCHIAN_BASE_URL}/connect/token",
+        data={
+            "client_id": ANTIOCHIAN_CLIENT_ID,
+            "client_secret": secret,
+            "grant_type": "client_credentials",
+        },
+        timeout=30,
     )
+    response.raise_for_status()
+    payload = response.json()
+    token = payload.get("access_token") if isinstance(payload, dict) else None
+    if not isinstance(token, str) or not token:
+        raise ValueError("token response did not contain an access_token")
+    return token
 
 
 def load_cache() -> dict:
@@ -113,31 +153,94 @@ def save_cache(cache: dict) -> None:
     CACHE_PATH.write_text(json.dumps(cache, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def is_complete_pdf(content: bytes) -> bool:
+    """Perform a cheap completeness check before a service PDF enters the cache."""
+    return content.startswith(b"%PDF") and b"%%EOF" in content[-2048:]
+
+
+def is_complete_pdf_file(path: Path) -> bool:
+    try:
+        return is_complete_pdf(path.read_bytes())
+    except OSError:
+        return False
+
+
+def atomic_write(path: Path, content: bytes) -> None:
+    """Durably stage content beside its destination, then replace it atomically."""
+    temporary_path = None
+    try:
+        with NamedTemporaryFile(
+            mode="wb", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
 def download_service_pdfs(
     session: requests.Session, start: date, end: date, refresh: bool
-) -> None:
+) -> list[dict]:
+    """Discover service PDFs through the API and cache every advertised PDF."""
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    token = antiochian_access_token(session)
+    discovered = []
     for day in dates_between(start, end):
-        for service_type in SERVICE_TYPES:
-            destination = INPUT_DIR / service_filename(day, service_type)
-            if destination.exists() and not refresh:
+        day_string = day.isoformat()
+        response = session.get(
+            f"{ANTIOCHIAN_BASE_URL}/api/antiochian/LiturgicalTexts/{day_string}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        services = api_pdf_services(response.json())
+        print(f"Found {len(services)} PDF services for {day_string}")
+        for position, service in enumerate(services):
+            remote_name = unquote(urlparse(service["url"]).path).rsplit("/", 1)[-1]
+            safe_name = re.sub(r"[^A-Za-z0-9_. -]+", "-", remote_name).strip(". ")
+            if not safe_name:
+                safe_name = f"service-{position + 1}.pdf"
+            url_digest = hashlib.sha256(service["url"].encode()).hexdigest()[:8]
+            destination = INPUT_DIR / (
+                f"{API_SERVICE_CACHE_PREFIX}{day_string}-{url_digest}-{safe_name}"
+            )
+            cached_is_valid = destination.exists() and is_complete_pdf_file(destination)
+            if cached_is_valid and not refresh:
                 print(f"Using cached service: {destination.name}")
-                continue
-            url = service_url(day, service_type)
-            print(f"Checking {url}")
-            try:
-                response = session.get(url, timeout=60)
-                if response.status_code == 404:
-                    print("  not published")
-                    continue
-                response.raise_for_status()
-                if not response.content.startswith(b"%PDF"):
-                    print("  skipped: response was not a PDF")
-                    continue
-                destination.write_bytes(response.content)
-                print(f"  saved {destination.name}")
-            except requests.RequestException as exc:
-                print(f"  failed: {exc}", file=sys.stderr)
+            else:
+                if destination.exists() and not cached_is_valid:
+                    print(f"Cached service is incomplete; redownloading: {destination.name}")
+                print(f"Downloading {service['url']}")
+                try:
+                    pdf_response = session.get(service["url"], timeout=60)
+                    pdf_response.raise_for_status()
+                    if not is_complete_pdf(pdf_response.content):
+                        raise ValueError("response was not a complete PDF")
+                    atomic_write(destination, pdf_response.content)
+                    print(f"  saved {destination.name}")
+                except (requests.RequestException, ValueError) as error:
+                    if cached_is_valid:
+                        print(
+                            f"Could not refresh service PDF {service['url']}; using cached copy: {error}",
+                            file=sys.stderr,
+                        )
+                    else:
+                        print(f"Skipping service PDF {service['url']}: {error}", file=sys.stderr)
+                        continue
+            discovered.append(
+                {
+                    "date": day_string,
+                    "type": service["type"],
+                    "label": service["label"],
+                    "path": destination,
+                    "order": position,
+                }
+            )
+    return discovered
 
 
 def parse_service_file(path: Path) -> tuple[str | None, str, str]:
@@ -283,18 +386,51 @@ def build(args: argparse.Namespace) -> None:
     session.headers["User-Agent"] = "antiochian-chant-library/1.0"
 
     build_end = args.end or args.start
+    discovered_services = []
     if args.start:
         if build_end < args.start:
             raise SystemExit("--end must not be before --start")
-        download_service_pdfs(session, args.start, build_end, args.refresh_services)
+        discovered_services = download_service_pdfs(
+            session, args.start, build_end, args.refresh_services
+        )
 
     cache = load_cache()
     services = []
     downloaded_this_run: dict[str, str | None] = {}
+    service_sources = discovered_services
+    discovered_paths = {source["path"] for source in discovered_services}
+    discovered_keys = {
+        (source["date"], canonical_service_type(source["type"]))
+        for source in discovered_services
+    }
     for source_pdf in sorted(INPUT_DIR.glob("*.pdf")):
-        day, service_type, label = parse_service_file(source_pdf)
-        if day and args.start and not (args.start.isoformat() <= day <= build_end.isoformat()):
+        if source_pdf in discovered_paths:
             continue
+        if source_pdf.name.startswith(API_SERVICE_CACHE_PREFIX):
+            # Cached API downloads are only selected by the current API response.
+            continue
+        day, service_type, label = parse_service_file(source_pdf)
+        if args.start and day:
+            if day < args.start.isoformat() or day > build_end.isoformat():
+                continue
+            if (day, canonical_service_type(service_type)) in discovered_keys:
+                # Prefer the current API manifest over an exact manual duplicate.
+                continue
+        service_sources.append(
+            {
+                "date": day,
+                "type": service_type,
+                "label": label,
+                "path": source_pdf,
+                "order": 999,
+            }
+        )
+
+    for source in service_sources:
+        source_pdf = source["path"]
+        day = source["date"]
+        service_type = source["type"]
+        label = source["label"]
         print(f"Extracting {source_pdf.name}")
         music = group_entries(extract_entries(source_pdf))
         for piece in music:
@@ -317,17 +453,20 @@ def build(args: argparse.Namespace) -> None:
                 "label": label,
                 "url": publish_service_pdf(source_pdf),
                 "music": music,
+                "_order": source["order"],
             }
         )
 
-    order = {name: index for index, name in enumerate(SERVICE_TYPES)}
     services.sort(
         key=lambda item: (
             item["date"] is None,
             item["date"] or "",
-            order.get(item["type"], 99),
+            item["_order"],
+            item["label"],
         )
     )
+    for service in services:
+        del service["_order"]
     payload = {"services": services}
     (DATA_DIR / "music.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
