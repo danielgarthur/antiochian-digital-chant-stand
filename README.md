@@ -69,7 +69,7 @@ GitHub Actions.
 ## GitHub Pages deployment
 
 `.github/workflows/deploy-pages.yml` builds and deploys the site without committing any
-generated PDFs. It runs on pushes to `main`, can be started manually with an optional
+generated PDFs. It runs on pushes to `master`, can be started manually with an optional
 date range, and runs each Saturday at 11:17 AM America/Chicago. Its automatic range is
 yesterday through eight days ahead; unpublished service files are simply skipped.
 
