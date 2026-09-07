@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#26372f">
     <title>Antiochian Chant Stand</title>
-    <link rel="stylesheet" href="./css/site.css?v=faa8453d0203">
+    <link rel="stylesheet" href="./css/site.css?v=17ca1d8cb760">
   </head>
   <body>
     <header class="controls" aria-label="Music navigation">
@@ -18,23 +18,33 @@
             </svg>
           </summary>
           <div class="schedule-controls">
-          <div class="nav-row date-row">
-            <button id="previousDay" class="arrow" type="button" aria-label="Previous day">‹</button>
-            <button id="today" class="center-label" type="button">
-              <span id="dateLabel">Loading…</span>
-              <small id="dateAction">Today</small>
-            </button>
-            <button id="nextDay" class="arrow" type="button" aria-label="Next day">›</button>
-          </div>
+            <div class="nav-row date-row">
+              <button id="previousDay" class="arrow" type="button" aria-label="Previous day">‹</button>
+              <label class="center-label date-picker">
+                <span id="dateLabel">Loading…</span>
+                <select id="dateSelect" aria-label="Choose service date"></select>
+              </label>
+              <button id="nextDay" class="arrow" type="button" aria-label="Next day">›</button>
+            </div>
 
-          <div class="nav-row service-row">
-            <button id="previousService" class="arrow" type="button" aria-label="Previous service">‹</button>
-            <strong id="serviceLabel" class="center-label">Service</strong>
-            <button id="nextService" class="arrow" type="button" aria-label="Next service">›</button>
-          </div>
+            <div class="nav-row service-row">
+              <button id="previousService" class="arrow" type="button" aria-label="Previous service">‹</button>
+              <strong id="serviceLabel" class="center-label">Service</strong>
+              <button id="nextService" class="arrow" type="button" aria-label="Next service">›</button>
+            </div>
           </div>
         </details>
-        <button id="viewToggle" class="view-toggle" type="button">Notes</button>
+        <button id="viewToggle" class="view-toggle" type="button" aria-label="Show service notes" title="Show service notes">
+          <svg id="notesIcon" class="view-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 3h9l3 3v15H6z" />
+            <path d="M15 3v4h4M9 11h6M9 15h6" />
+          </svg>
+          <svg id="musicIcon" class="view-icon" viewBox="0 0 24 24" aria-hidden="true" hidden>
+            <path d="M9 18V6l9-2v12" />
+            <ellipse cx="6.5" cy="18" rx="2.5" ry="2" />
+            <ellipse cx="15.5" cy="16" rx="2.5" ry="2" />
+          </svg>
+        </button>
       </div>
 
       <div class="music-row">
@@ -65,6 +75,6 @@
       <div id="notesPages" class="pages" hidden></div>
     </main>
 
-    <script type="module" src="./js/app.js?v=621e53c2dda7"></script>
+    <script type="module" src="./js/app.js?v=bf0b9f57030f"></script>
   </body>
 </html>

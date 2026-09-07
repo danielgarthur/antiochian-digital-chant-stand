@@ -89,15 +89,21 @@ These are build outputs and are not stored in Git history.
 
 The HTML, CSS, and JavaScript are ordinary hand-maintainable files. The interface
 defaults to today's Orthros when available, keeps Orthros immediately before Liturgy,
-and provides separate arrows for dates, services, and music within a service.
+and provides separate arrows for dates, services, and music within a service. Tap the
+date in the expanded controls to jump directly to any date in the library. Service
+arrows continue chronologically across date boundaries.
 The date and service controls are collapsed by default; tap the compact current-service
-line to reveal them. Selecting a service collapses them again.
+line to reveal them. They remain open while changing dates or services so that several
+nearby selections can be browsed without repeatedly reopening the controls.
 
 When a piece has multiple settings, the site prefers `STAM`, `CROW`, `KARAM`,
 `EL MASSIH`, then `CHANT`. Unlisted settings retain their order from the service PDF.
 This list is named `PREFERRED_SETTINGS` near the top of `docs/js/app.js` so it is easy
 to change by hand. The selected setting appears beside the piece count only when a
 choice is available; tapping it opens the setting chooser.
+
+Hymns are numbered in the music dropdown. The previous and next hymn arrows wrap
+from the beginning to the end and from the end back to the beginning.
 
 Linked parenthetical labels become setting names regardless of capitalization. The
 service-text label `(twelve times)` is the one explicit exception: it uses `Default`
