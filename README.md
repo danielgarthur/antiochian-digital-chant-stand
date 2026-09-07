@@ -112,9 +112,11 @@ choice is available; tapping it opens the setting chooser.
 Hymns are numbered in the music dropdown. The previous and next hymn arrows wrap
 from the beginning to the end and from the end back to the beginning.
 
-Linked parenthetical labels become setting names regardless of capitalization. The
-service-text label `(twelve times)` is the one explicit exception: it uses `Default`
-and inherits the preceding centered section heading as its title.
+Linked parenthetical labels become setting names regardless of capitalization.
+The service-text label `(twelve times)` uses `Default` and inherits the preceding
+centered section heading as its title. A parenthetical label enclosed in literal
+double asterisks, such as `(**As one valiant**)`, identifies the model melody for a
+prosomoion or automelon rather than a separate setting, so it also uses `Default`.
 
 The `Notes` button switches between the current service text and the selected music.
 Tapping an embedded music link in the Notes view switches directly to that hymn and

@@ -91,6 +91,8 @@ def clean_setting(link_text: str) -> str:
     setting = parenthesized_label(link_text)
     if setting is None:
         return DEFAULT_SETTING
+    # A literal **label** names the model melody for a prosomoion or
+    # automelon; it is not the name of a separate musical setting.
     if setting.casefold() == "twelve times" or setting.startswith("**"):
         return DEFAULT_SETTING
     return setting or DEFAULT_SETTING

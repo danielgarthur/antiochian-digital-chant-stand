@@ -28,6 +28,10 @@ class GroupEntriesTests(unittest.TestCase):
     def test_twelve_times_is_the_default_setting(self):
         self.assertEqual(clean_setting("(twelve times)"), "Default")
 
+    def test_model_melody_label_is_the_default_setting(self):
+        self.assertEqual(clean_setting("(**As one valiant**)"), "Default")
+        self.assertEqual(clean_setting("(**Thou art the joy**)"), "Default")
+
     def test_twelve_times_uses_the_previous_section_heading(self):
         with TemporaryDirectory() as directory:
             pdf_path = Path(directory) / "service.pdf"
