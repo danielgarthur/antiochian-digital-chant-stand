@@ -10,11 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       start_date:
-        description: "First service date (YYYY-MM-DD); blank uses nine days ago"
+        description: "First service date (YYYY-MM-DD); blank uses the most recent Saturday"
         required: false
         type: string
       end_date:
-        description: "Last service date (YYYY-MM-DD); blank uses nine days ahead"
+        description: "Last service date (YYYY-MM-DD); blank uses the following weekend's Sunday"
         required: false
         type: string
 
@@ -59,14 +59,16 @@ jobs:
           if [[ -n "$REQUESTED_START" ]]; then
             start="$REQUESTED_START"
           else
-            start="$(TZ=America/Chicago date -d "$today - 9 days" +%F)"
+            weekday="$(TZ=America/Chicago date -d "$today" +%u)"
+            days_since_saturday=$(( (weekday + 1) % 7 ))
+            start="$(TZ=America/Chicago date -d "$today - $days_since_saturday days" +%F)"
           fi
           if [[ -n "$REQUESTED_END" ]]; then
             end="$REQUESTED_END"
           elif [[ -n "$REQUESTED_START" ]]; then
             end="$REQUESTED_START"
           else
-            end="$(TZ=America/Chicago date -d "$today + 9 days" +%F)"
+            end="$(TZ=America/Chicago date -d "$start + 8 days" +%F)"
           fi
           echo "start=$start" >> "$GITHUB_OUTPUT"
           echo "end=$end" >> "$GITHUB_OUTPUT"
