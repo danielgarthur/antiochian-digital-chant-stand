@@ -534,7 +534,6 @@ export async function showPdf(url, pagesElement, messageElement, loadingText = "
     }
     observePages(record);
     if (messageElement) messageElement.textContent = "";
-    pagesElement.dispatchEvent(new CustomEvent("pdf-layout-ready"));
   } catch (error) {
     if (views.get(pagesElement) !== record) return;
     console.error(error);

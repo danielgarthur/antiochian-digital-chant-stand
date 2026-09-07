@@ -1,8 +1,8 @@
-import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=2aec3019bc5d";
+import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=2a16c9df464a";
 
 const elements = Object.fromEntries(
   [
-    "schedule", "scheduleLabel", "previousDay", "dateSelect", "nextDay", "dateLabel", "previousService",
+    "scheduleLabel", "previousDay", "dateSelect", "nextDay", "dateLabel", "previousService",
     "nextService", "serviceTabs", "previousMusic", "nextMusic",
     "musicSelect", "musicPosition", "settingButton", "settingsDialog",
     "closeSettings", "settings", "viewToggle", "notesIcon", "musicIcon", "musicPages", "notesPages", "message",

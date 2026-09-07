@@ -182,17 +182,12 @@ def group_entries(entries: list[dict]) -> list[dict]:
     for entry in entries:
         title = entry["title"]
         key = normalize_space(title).casefold()
-        page = entry.get("page")
-        top = entry.get("top")
+        page = entry["page"]
+        top = entry["top"]
         same_printed_line = (
             key == current_key
-            and (
-                page is None
-                or top is None
-                or current_page is None
-                or current_top is None
-                or (page == current_page and abs(top - current_top) <= 2)
-            )
+            and page == current_page
+            and abs(top - current_top) <= 2
         )
         if not same_printed_line:
             grouped.append({"title": title, "links": []})
@@ -210,8 +205,8 @@ def group_entries(entries: list[dict]) -> list[dict]:
                 "sourceUrl": entry["sourceUrl"],
                 # Retain the annotation location so the browser viewer can
                 # distinguish repeated uses of the same PDF within a service.
-                "sourcePage": entry.get("page"),
-                "sourceTop": entry.get("top"),
+                "sourcePage": page,
+                "sourceTop": top,
             }
         )
     return grouped
