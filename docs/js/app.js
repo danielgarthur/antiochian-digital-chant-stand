@@ -3,7 +3,7 @@ import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=2aec3019bc5d";
 const elements = Object.fromEntries(
   [
     "schedule", "scheduleLabel", "previousDay", "dateSelect", "nextDay", "dateLabel", "previousService",
-    "nextService", "serviceLabel", "previousMusic", "nextMusic",
+    "nextService", "serviceTabs", "previousMusic", "nextMusic",
     "musicSelect", "musicPosition", "settingButton", "settingsDialog",
     "closeSettings", "settings", "viewToggle", "notesIcon", "musicIcon", "musicPages", "notesPages", "message",
   ].map((id) => [id, document.getElementById(id)])
@@ -298,7 +298,20 @@ function render() {
   elements.dateSelect.value = service.date || "";
   const compactDay = service.date === localDate() ? "Today" : formatDay(service.date);
   elements.scheduleLabel.textContent = `${compactDay} · ${service.label}`;
-  elements.serviceLabel.textContent = service.label;
+  elements.serviceTabs.replaceChildren(
+    ...servicesOn(service.date).map((item) => {
+      const selected = item === service;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `service-tab${selected ? " selected" : ""}`;
+      button.textContent = item.label;
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+      button.addEventListener("click", () => setService(services.indexOf(item)));
+      return button;
+    })
+  );
   elements.previousDay.disabled = dayPosition <= 0;
   elements.nextDay.disabled = dayPosition < 0 || dayPosition >= datedDays.length - 1;
   elements.previousService.disabled = serviceIndex <= 0;
