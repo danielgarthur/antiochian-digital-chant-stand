@@ -10,11 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       start_date:
-        description: "First service date (YYYY-MM-DD); blank uses yesterday"
+        description: "First service date (YYYY-MM-DD); blank uses nine days ago"
         required: false
         type: string
       end_date:
-        description: "Last service date (YYYY-MM-DD); blank uses eight days ahead"
+        description: "Last service date (YYYY-MM-DD); blank uses nine days ahead"
         required: false
         type: string
 
@@ -55,17 +55,18 @@ jobs:
           REQUESTED_START: ${{ inputs.start_date }}
           REQUESTED_END: ${{ inputs.end_date }}
         run: |
+          today="$(TZ=America/Chicago date +%F)"
           if [[ -n "$REQUESTED_START" ]]; then
             start="$REQUESTED_START"
           else
-            start="$(TZ=America/Chicago date -d 'yesterday' +%F)"
+            start="$(TZ=America/Chicago date -d "$today - 9 days" +%F)"
           fi
           if [[ -n "$REQUESTED_END" ]]; then
             end="$REQUESTED_END"
           elif [[ -n "$REQUESTED_START" ]]; then
             end="$REQUESTED_START"
           else
-            end="$(TZ=America/Chicago date -d '+8 days' +%F)"
+            end="$(TZ=America/Chicago date -d "$today + 9 days" +%F)"
           fi
           echo "start=$start" >> "$GITHUB_OUTPUT"
           echo "end=$end" >> "$GITHUB_OUTPUT"

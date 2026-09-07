@@ -89,7 +89,9 @@ positions, and a mobile viewport without downloading live service files.
 `.github/workflows/deploy-pages.yml` builds and deploys the site without committing any
 generated PDFs. It runs on pushes to `master`, can be started manually with an optional
 date range, and runs each Saturday at 11:17 AM America/Chicago. Its automatic range is
-yesterday through eight days ahead; unpublished service files are simply skipped.
+nine days before the build date through nine days after it, a 19-day inclusive window.
+This guarantees that the previous and next weekends are included regardless of the day
+the build runs. Unpublished service files are simply skipped.
 
 In the repository's GitHub settings, set **Pages → Build and deployment → Source** to
 **GitHub Actions**. A failed or empty build stops before deployment, leaving the last
