@@ -246,6 +246,8 @@ function clearPinchPreview(record, pinch) {
 
 function installPinchZoom(record) {
   const pages = record.pagesElement;
+  const controller = new AbortController();
+  const { signal } = controller;
 
   const touchStart = (event) => {
     if (event.touches.length === 1) {
@@ -327,7 +329,6 @@ function installPinchZoom(record) {
     record.tapCandidate = null;
     record.lastTap = null;
     record.suppressTapAfterPinch = true;
-    record.gesture = null;
     const center = record.touchCenter;
     record.pinch = {
       startZoom: record.zoom,
@@ -373,69 +374,26 @@ function installPinchZoom(record) {
     invalidatePages(record);
   };
 
-  const gestureStart = (event) => {
-    event.preventDefault();
-    if (record.pinch) return;
-    record.interacting = true;
-    record.tapCandidate = null;
-    record.lastTap = null;
-    record.suppressTapAfterPinch = true;
-    const x = Number.isFinite(event.clientX) ? event.clientX : window.innerWidth / 2;
-    const y = Number.isFinite(event.clientY) ? event.clientY : window.innerHeight / 2;
-    record.gesture = {
-      zoom: record.zoom,
-      x,
-      y,
-      anchor: anchorAtPoint(record, x, y),
-    };
-  };
-
-  const gestureChange = (event) => {
-    event.preventDefault();
-    if (!record.gesture || record.pinch) return;
-    const x = Number.isFinite(event.clientX) ? event.clientX : record.gesture.x;
-    const y = Number.isFinite(event.clientY) ? event.clientY : record.gesture.y;
-    applyZoom(record, record.gesture.zoom * event.scale, x, y, record.gesture.anchor);
-  };
-
-  const gestureEnd = (event) => {
-    event.preventDefault();
-    if (!record.gesture) return;
-    record.gesture = null;
-    record.interacting = false;
-    invalidatePages(record);
-  };
-
   const doubleClick = (event) => {
     event.preventDefault();
     resetToOverview(record, event.clientX, event.clientY);
   };
 
-  pages.addEventListener("touchstart", touchStart, { passive: true });
-  pages.addEventListener("touchmove", touchMove, { passive: true });
-  pages.addEventListener("touchend", touchEnd, { passive: false });
-  pages.addEventListener("touchcancel", touchEnd, { passive: false });
-  pages.addEventListener("dblclick", doubleClick);
-  pages.addEventListener("gesturestart", gestureStart, { passive: false });
-  pages.addEventListener("gesturechange", gestureChange, { passive: false });
-  pages.addEventListener("gestureend", gestureEnd, { passive: false });
+  pages.addEventListener("touchstart", touchStart, { passive: true, signal });
+  pages.addEventListener("touchmove", touchMove, { passive: true, signal });
+  pages.addEventListener("touchend", touchEnd, { passive: false, signal });
+  pages.addEventListener("touchcancel", touchEnd, { passive: false, signal });
+  pages.addEventListener("dblclick", doubleClick, { signal });
   const touchManager = new pdfjsLib.TouchManager({
     container: pages,
     onPinchStart: pinchStart,
     onPinching: pinching,
     onPinchEnd: pinchEnd,
-    signal: new AbortController().signal,
+    signal,
   });
 
   record.removePinchZoom = () => {
-    pages.removeEventListener("touchstart", touchStart);
-    pages.removeEventListener("touchmove", touchMove);
-    pages.removeEventListener("touchend", touchEnd);
-    pages.removeEventListener("touchcancel", touchEnd);
-    pages.removeEventListener("dblclick", doubleClick);
-    pages.removeEventListener("gesturestart", gestureStart);
-    pages.removeEventListener("gesturechange", gestureChange);
-    pages.removeEventListener("gestureend", gestureEnd);
+    controller.abort();
     touchManager.destroy();
   };
 }
@@ -496,7 +454,6 @@ export async function showPdf(url, pagesElement, messageElement, loadingText = "
     zoom: MIN_ZOOM,
     interacting: false,
     pinch: null,
-    gesture: null,
     touchCenter: null,
     suppressTapAfterPinch: false,
     tapCandidate: null,
