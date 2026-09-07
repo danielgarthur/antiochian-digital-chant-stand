@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import unquote, urlparse
 
 import pymupdf as fitz
@@ -12,14 +13,41 @@ import pymupdf as fitz
 DEFAULT_SETTING = "Default"
 
 
+class TextLine(NamedTuple):
+    rect: fitz.Rect
+    text: str
+    prominent_text: str
+
+
 def normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def intersecting_text(page: fitz.Page, rect: fitz.Rect) -> str:
+def normalized_lines(page: fitz.Page) -> list[TextLine]:
+    """Extract the normalized text and geometry needed by title heuristics."""
+    lines: list[TextLine] = []
+    for block in page.get_text("dict").get("blocks", []):
+        for line in block.get("lines", []):
+            spans = line.get("spans", [])
+            text = normalize_space("".join(span.get("text", "") for span in spans))
+            if not text:
+                continue
+            largest_size = max(span.get("size", 0) for span in spans)
+            prominent_text = normalize_space(
+                "".join(
+                    span.get("text", "")
+                    for span in spans
+                    if span.get("size", 0) >= largest_size * 0.8
+                )
+            )
+            lines.append(TextLine(fitz.Rect(line["bbox"]), text, prominent_text))
+    return lines
+
+
+def intersecting_text(words: list[tuple], rect: fitz.Rect) -> str:
     """Return words touched by a link annotation, in reading order."""
     hits: list[tuple[float, float, str]] = []
-    for x0, y0, x1, y1, word, *_ in page.get_text("words"):
+    for x0, y0, x1, y1, word, *_ in words:
         word_mid_y = (y0 + y1) / 2
         overlaps_horizontally = x1 >= rect.x0 - 1 and x0 <= rect.x1 + 1
         if rect.y0 - 0.5 <= word_mid_y <= rect.y1 + 0.5 and overlaps_horizontally:
@@ -28,41 +56,28 @@ def intersecting_text(page: fitz.Page, rect: fitz.Rect) -> str:
     return normalize_space(" ".join(word for _, _, word in hits))
 
 
-def nearest_line(page: fitz.Page, rect: fitz.Rect) -> str:
+def nearest_line(lines: list[TextLine], rect: fitz.Rect) -> str:
     """Find the text line at the link's vertical position."""
     link_mid_y = (rect.y0 + rect.y1) / 2
     candidates: list[tuple[float, float, str]] = []
-    for block in page.get_text("dict").get("blocks", []):
-        for line in block.get("lines", []):
-            text = normalize_space(
-                "".join(span.get("text", "") for span in line.get("spans", []))
-            )
-            if not text:
-                continue
-            line_rect = fitz.Rect(line["bbox"])
-            vertical_distance = abs((line_rect.y0 + line_rect.y1) / 2 - link_mid_y)
-            vertical_penalty = 0 if line_rect.y0 <= link_mid_y <= line_rect.y1 else 100
-            link_mid_x = (rect.x0 + rect.x1) / 2
-            horizontal_penalty = 0 if line_rect.x0 <= link_mid_x <= line_rect.x1 else 50
-            penalty = vertical_penalty + horizontal_penalty
-            candidates.append((penalty + vertical_distance, line_rect.x0, text))
+    for line in lines:
+        vertical_distance = abs((line.rect.y0 + line.rect.y1) / 2 - link_mid_y)
+        vertical_penalty = 0 if line.rect.y0 <= link_mid_y <= line.rect.y1 else 100
+        link_mid_x = (rect.x0 + rect.x1) / 2
+        horizontal_penalty = 0 if line.rect.x0 <= link_mid_x <= line.rect.x1 else 50
+        penalty = vertical_penalty + horizontal_penalty
+        candidates.append((penalty + vertical_distance, line.rect.x0, line.text))
     return min(candidates, default=(0, 0, "Untitled"))[2]
 
 
-def previous_line(page: fitz.Page, rect: fitz.Rect) -> str:
+def previous_line(lines: list[TextLine], rect: fitz.Rect) -> str:
     """Return the closest line above a settings-only line."""
     candidates: list[tuple[float, str]] = []
-    for block in page.get_text("dict").get("blocks", []):
-        for line in block.get("lines", []):
-            line_rect = fitz.Rect(line["bbox"])
-            gap = rect.y0 - line_rect.y1
-            if gap < -0.5 or gap > 40:
-                continue
-            text = normalize_space(
-                "".join(span.get("text", "") for span in line.get("spans", []))
-            )
-            if text:
-                candidates.append((gap, text))
+    for line in lines:
+        gap = rect.y0 - line.rect.y1
+        if gap < -0.5 or gap > 40:
+            continue
+        candidates.append((gap, line.text))
     return min(candidates, default=(0, "Untitled"))[1]
 
 
@@ -81,33 +96,21 @@ def clean_setting(link_text: str) -> str:
     return setting or DEFAULT_SETTING
 
 
-def previous_section_heading(page: fitz.Page, rect: fitz.Rect) -> str | None:
+def previous_section_heading(
+    lines: list[TextLine], page_width: float, rect: fitz.Rect
+) -> str | None:
     """Return the most recent centered, uppercase section heading above a link."""
     candidates: list[tuple[float, str]] = []
-    page_center = page.rect.width / 2
-    for block in page.get_text("dict").get("blocks", []):
-        for line in block.get("lines", []):
-            line_rect = fitz.Rect(line["bbox"])
-            if line_rect.y1 > rect.y0:
-                continue
-            spans = line.get("spans", [])
-            if not spans:
-                continue
-            largest_size = max(span.get("size", 0) for span in spans)
-            text = normalize_space(
-                "".join(
-                    span.get("text", "")
-                    for span in spans
-                    if span.get("size", 0) >= largest_size * 0.8
-                )
-            )
-            letters = [character for character in text if character.isalpha()]
-            centered = (
-                abs((line_rect.x0 + line_rect.x1) / 2 - page_center)
-                <= page.rect.width * 0.12
-            )
-            if letters and text.upper() == text and centered:
-                candidates.append((line_rect.y1, text))
+    page_center = page_width / 2
+    for line in lines:
+        if line.rect.y1 > rect.y0:
+            continue
+        letters = [character for character in line.prominent_text if character.isalpha()]
+        centered = (
+            abs((line.rect.x0 + line.rect.x1) / 2 - page_center) <= page_width * 0.12
+        )
+        if letters and line.prominent_text.upper() == line.prominent_text and centered:
+            candidates.append((line.rect.y1, line.prominent_text))
     return max(candidates, default=(0, None))[1]
 
 
@@ -138,18 +141,21 @@ def extract_entries(pdf_path: Path) -> list[dict]:
                     fitz.Rect(link.get("from", (0, 0, 0, 0))).x0,
                 ),
             )
+            links = [link for link in links if is_pdf_url(link.get("uri", ""))]
+            if not links:
+                continue
+            words = page.get_text("words")
+            lines = normalized_lines(page)
             for link in links:
-                source_url = link.get("uri", "")
-                if not is_pdf_url(source_url):
-                    continue
+                source_url = link["uri"]
                 rect = fitz.Rect(link["from"])
-                link_text = intersecting_text(page, rect)
-                title = clean_title(nearest_line(page, rect))
+                link_text = intersecting_text(words, rect)
+                title = clean_title(nearest_line(lines, rect))
                 if title == "Untitled":
-                    title = clean_title(previous_line(page, rect))
+                    title = clean_title(previous_line(lines, rect))
                 label = parenthesized_label(link_text)
                 if label and label.casefold() == "twelve times":
-                    title = previous_section_heading(page, rect) or title
+                    title = previous_section_heading(lines, page.rect.width, rect) or title
                 entries.append(
                     {
                         "title": title,
