@@ -19,7 +19,10 @@ pip install -r requirements.txt
 python pipeline/build_library.py --start 2026-09-05 --end 2026-09-07
 ```
 
-The range is inclusive. For just the current day:
+The range is inclusive. When a range is supplied, recognized dated service PDFs
+outside that range are excluded from the generated library, even if they remain in
+`pipeline/input/` from an earlier run. Undated manual inputs are still included. For
+just the current day:
 
 ```sh
 python pipeline/build_library.py --today
@@ -39,9 +42,12 @@ Use the upstream filename convention, such as `Sep 06 2026 ORTHROS.pdf`, so the 
 can assign the date and service. Other PDF names are still included under their own
 filename as undated music.
 
-Downloaded music is content-hashed and reused. The builder checks cached music at
-most once per day and uses HTTP validators when the source server provides them.
-Use `--refresh-music` or `--refresh-services` to force a check.
+Downloaded music is content-hashed and retained separately in
+`pipeline/.music-cache/` for reuse. The builder checks cached music at most once per
+day and uses HTTP validators when the source server provides them. Published PDFs in
+`docs/` are pruned to exactly those referenced by the current library; pruning them
+does not discard the download cache. Use `--refresh-music` or `--refresh-services` to
+force a check.
 
 The builder also adds content-version query parameters to the CSS and JavaScript
 references. Frontend files are cached while unchanged, but editing them and rebuilding
@@ -84,6 +90,7 @@ successful site online.
 - `docs/services/` — content-hashed source service PDFs used by the Notes view
 - `docs/vendor/pdfjs/` — the pinned PDF.js browser library
 - `pipeline/.download-cache.json` — local download metadata
+- `pipeline/.music-cache/` — persistent downloaded music used to populate `docs/pdfs/`
 
 These are build outputs and are not stored in Git history.
 

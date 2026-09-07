@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -23,6 +24,8 @@ PDF_DIR = DOCS_DIR / "pdfs"
 SERVICE_PDF_DIR = DOCS_DIR / "services"
 DATA_DIR = DOCS_DIR / "data"
 CACHE_PATH = ROOT / "pipeline" / ".download-cache.json"
+MUSIC_CACHE_DIR = ROOT / "pipeline" / ".music-cache"
+CACHE_VERSION = 2
 
 SERVICE_TYPES = ("VESP", "ORTHROS", "READ")
 SERVICE_LABELS = {"VESP": "Vespers", "ORTHROS": "Orthros", "READ": "Liturgy"}
@@ -96,9 +99,12 @@ def service_url(day: date, service_type: str) -> str:
 
 def load_cache() -> dict:
     try:
-        return json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"music": {}}
+        return {"version": CACHE_VERSION, "music": {}}
+    if cache.get("version") != CACHE_VERSION:
+        return {"version": CACHE_VERSION, "music": {}}
+    return cache
 
 
 def save_cache(cache: dict) -> None:
@@ -159,53 +165,81 @@ def publish_service_pdf(source_pdf: Path) -> str:
     return f"services/{filename}"
 
 
+def cached_music_path(record: dict) -> Path | None:
+    filename = record.get("filename")
+    if not isinstance(filename, str) or Path(filename).name != filename:
+        return None
+    path = MUSIC_CACHE_DIR / filename
+    return path if path.is_file() else None
+
+
+def publish_music_pdf(source: Path) -> str:
+    destination = PDF_DIR / source.name
+    if not destination.exists():
+        shutil.copyfile(source, destination)
+    return f"pdfs/{source.name}"
+
+
 def download_music(
     session: requests.Session, source_url: str, cache: dict, refresh: bool
 ) -> str | None:
     record = cache.setdefault("music", {}).get(source_url, {})
-    cached_url = record.get("url")
+    cached_path = cached_music_path(record)
     checked_at = record.get("checkedAt")
-    if cached_url and (DOCS_DIR / cached_url).exists() and checked_at and not refresh:
+    if cached_path and checked_at and not refresh:
         try:
             age = datetime.now(timezone.utc) - datetime.fromisoformat(checked_at)
             if age < timedelta(hours=24):
-                return cached_url
+                return publish_music_pdf(cached_path)
         except ValueError:
             pass
 
     headers = {}
-    if record.get("etag"):
+    if cached_path and record.get("etag"):
         headers["If-None-Match"] = record["etag"]
-    if record.get("lastModified"):
+    if cached_path and record.get("lastModified"):
         headers["If-Modified-Since"] = record["lastModified"]
     try:
         response = session.get(source_url, headers=headers, timeout=90)
-        if response.status_code == 304 and cached_url:
+        if response.status_code == 304 and cached_path:
             record["checkedAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-            return cached_url
+            return publish_music_pdf(cached_path)
         response.raise_for_status()
         content = response.content
         if not content.startswith(b"%PDF"):
             raise ValueError("response was not a PDF")
     except (requests.RequestException, ValueError) as exc:
         print(f"  music download failed: {source_url}: {exc}", file=sys.stderr)
-        if cached_url and (DOCS_DIR / cached_url).exists():
-            return cached_url
+        if cached_path:
+            return publish_music_pdf(cached_path)
         return None
 
     digest = hashlib.sha256(content).hexdigest()
     filename = content_filename(source_url, digest)
-    destination = PDF_DIR / filename
-    if not destination.exists():
-        destination.write_bytes(content)
-    local_url = f"pdfs/{filename}"
+    cached_path = MUSIC_CACHE_DIR / filename
+    if not cached_path.exists():
+        cached_path.write_bytes(content)
     cache["music"][source_url] = {
-        "url": local_url,
+        "filename": filename,
         "etag": response.headers.get("ETag"),
         "lastModified": response.headers.get("Last-Modified"),
         "checkedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    return local_url
+    return publish_music_pdf(cached_path)
+
+
+def prune_published_pdfs(services: list[dict]) -> None:
+    referenced = {service["url"] for service in services}
+    referenced.update(
+        link["url"]
+        for service in services
+        for piece in service["music"]
+        for link in piece["links"]
+    )
+    for directory in (PDF_DIR, SERVICE_PDF_DIR):
+        for path in directory.glob("*.pdf"):
+            if path.relative_to(DOCS_DIR).as_posix() not in referenced:
+                path.unlink()
 
 
 def ensure_pdfjs(session: requests.Session) -> None:
@@ -226,20 +260,23 @@ def build(args: argparse.Namespace) -> None:
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     SERVICE_PDF_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     session = requests.Session()
     session.headers["User-Agent"] = "antiochian-chant-library/1.0"
 
+    build_end = args.end or args.start
     if args.start:
-        end = args.end or args.start
-        if end < args.start:
+        if build_end < args.start:
             raise SystemExit("--end must not be before --start")
-        download_service_pdfs(session, args.start, end, args.refresh_services)
+        download_service_pdfs(session, args.start, build_end, args.refresh_services)
 
     cache = load_cache()
     services = []
     downloaded_this_run: dict[str, str | None] = {}
     for source_pdf in sorted(INPUT_DIR.glob("*.pdf")):
         day, service_type, label = parse_service_file(source_pdf)
+        if day and args.start and not (args.start.isoformat() <= day <= build_end.isoformat()):
+            continue
         print(f"Extracting {source_pdf.name}")
         music = group_entries(extract_entries(source_pdf))
         for piece in music:
@@ -277,6 +314,7 @@ def build(args: argparse.Namespace) -> None:
     (DATA_DIR / "music.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+    prune_published_pdfs(services)
     save_cache(cache)
     ensure_pdfjs(session)
     update_frontend_versions()

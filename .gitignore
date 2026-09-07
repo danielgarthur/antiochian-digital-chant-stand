@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .venv/
 pipeline/.download-cache.json
+pipeline/.music-cache/
 pipeline/input/*.pdf
 docs/data/music.json
 docs/pdfs/*.pdf
