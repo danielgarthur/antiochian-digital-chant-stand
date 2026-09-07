@@ -1,4 +1,4 @@
-import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=2dd5ec39be2a";
+import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=2aec3019bc5d";
 
 const elements = Object.fromEntries(
   [

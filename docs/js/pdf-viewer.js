@@ -10,8 +10,6 @@ const DOUBLE_TAP_DISTANCE = 36;
 const TAP_MOVE_TOLERANCE = 12;
 const MAX_CANVAS_DIMENSION = 8192;
 const MAX_CANVAS_PIXELS = 16_000_000;
-const WHEEL_ZOOM_SENSITIVITY = 0.005;
-const WHEEL_RENDER_DELAY = 120;
 
 function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
@@ -65,8 +63,8 @@ async function renderVisiblePage(record, shell) {
     const natural = page.getViewport({ scale: 1 });
     installLinkAnnotations(record, page, shell, natural);
     const cssScale = shell.clientWidth / natural.width;
-    // Keep text and notation sharp after PDF zoom without letting a large zoom
-    // allocate an unbounded canvas on high-density mobile screens.
+    // Keep text and notation sharp without letting a page allocate an
+    // unbounded canvas on high-density mobile screens.
     const cssWidth = cssScale * natural.width;
     const cssHeight = cssScale * natural.height;
     const pixelRatio = Math.min(
@@ -163,7 +161,6 @@ function setPageWidth(record) {
     "--pdf-page-width",
     `${Math.round(record.overviewWidth * record.zoom * 100) / 100}px`
   );
-  record.pagesElement.classList.toggle("pdf-zoomed", record.zoom > MIN_ZOOM + 0.01);
 }
 
 function anchorAtPoint(record, clientX, clientY) {
@@ -195,11 +192,21 @@ function keepAnchorAtPoint(record, anchor, clientX, clientY) {
   window.scrollTo({ top: documentY - clientY, behavior: "auto" });
 }
 
-function applyZoom(record, zoom, clientX, clientY, anchor = null) {
-  const fixedPoint = anchor || anchorAtPoint(record, clientX, clientY);
+function applyZoom(record, zoom, clientX, clientY, anchor) {
   record.zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
   setPageWidth(record);
-  keepAnchorAtPoint(record, fixedPoint, clientX, clientY);
+  keepAnchorAtPoint(record, anchor, clientX, clientY);
+}
+
+function resetToOverview(record, clientX, clientY) {
+  if (record.zoom <= MIN_ZOOM + 0.01) return false;
+  const anchor = anchorAtPoint(record, clientX, clientY);
+  applyZoom(record, MIN_ZOOM, clientX, clientY, anchor);
+  // At overview width the page fits the viewer, so no horizontal offset
+  // should survive from the enlarged document.
+  record.pagesElement.scrollTo({ left: 0, behavior: "auto" });
+  invalidatePages(record);
+  return true;
 }
 
 function showPinchPreview(record) {
@@ -214,12 +221,15 @@ function showPinchPreview(record) {
     record.pagesElement.classList.add("pdf-pinch-preview");
     pinch.previewReady = true;
   }
-  const ratio = pinch.zoom / pinch.startZoom;
-  const translateX = pinch.center.x - pinch.startCenter.x;
-  const translateY = pinch.center.y - pinch.startCenter.y;
-  record.pagesElement.style.setProperty("--pinch-scale", ratio);
-  record.pagesElement.style.setProperty("--pinch-translate-x", `${translateX}px`);
-  record.pagesElement.style.setProperty("--pinch-translate-y", `${translateY}px`);
+  record.pagesElement.style.setProperty("--pinch-scale", pinch.zoom / pinch.startZoom);
+  record.pagesElement.style.setProperty(
+    "--pinch-translate-x",
+    `${pinch.center.x - pinch.startCenter.x}px`
+  );
+  record.pagesElement.style.setProperty(
+    "--pinch-translate-y",
+    `${pinch.center.y - pinch.startCenter.y}px`
+  );
 }
 
 function clearPinchPreview(record, pinch) {
@@ -228,78 +238,14 @@ function clearPinchPreview(record, pinch) {
   record.pagesElement.style.removeProperty("--pinch-scale");
   record.pagesElement.style.removeProperty("--pinch-translate-x");
   record.pagesElement.style.removeProperty("--pinch-translate-y");
-  if (!pinch.previewReady) return;
   record.pagesElement.querySelectorAll(".pdf-page-shell").forEach((shell) => {
     shell.style.removeProperty("--pinch-origin-x");
     shell.style.removeProperty("--pinch-origin-y");
   });
 }
 
-function detailZoom(record, shell) {
-  const pageWidth = shell?.getBoundingClientRect().width / record.zoom || record.overviewWidth;
-  const availableWidth = Math.max(window.innerWidth - 24, 1);
-  // A portrait score is comfortably readable at roughly half-page width. This
-  // remains viewport/document-relative instead of being a fixed percentage.
-  const readablePageWidth = availableWidth * (shell && shell.clientHeight < shell.clientWidth ? 1.45 : 1.9);
-  return clamp(readablePageWidth / pageWidth, 1.6, MAX_ZOOM);
-}
-
-function restoreView(record, scrollLeft, scrollY) {
-  const revision = ++record.scrollRevision;
-  const scroll = () => {
-    record.pagesElement.scrollTo({ left: scrollLeft, behavior: "auto" });
-    window.scrollTo({ top: scrollY, behavior: "auto" });
-  };
-  scroll();
-  // Browsers can apply scroll anchoring after a wide page contracts. Repeat
-  // after layout settles so the saved overview position wins.
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (revision === record.scrollRevision) scroll();
-  }));
-  setTimeout(() => {
-    if (revision === record.scrollRevision) scroll();
-  }, 100);
-}
-
-function toggleDoubleTapZoom(record, clientX, clientY) {
-  if (record.doubleTapRestore) {
-    const restore = record.doubleTapRestore;
-    record.doubleTapRestore = null;
-    record.zoom = restore.zoom;
-    setPageWidth(record);
-    invalidatePages(record);
-    restoreView(record, restore.scrollLeft, restore.scrollY);
-    return;
-  }
-
-  const anchor = anchorAtPoint(record, clientX, clientY);
-  const shell = anchor
-    ? record.pagesElement.querySelector(`[data-page="${anchor.page}"]`)
-    : null;
-  record.doubleTapRestore = {
-    zoom: record.zoom,
-    scrollLeft: record.pagesElement.scrollLeft,
-    scrollY: window.scrollY,
-  };
-  applyZoom(record, Math.max(record.zoom, detailZoom(record, shell)), clientX, clientY, anchor);
-  invalidatePages(record);
-}
-
-function installZoomGestures(record) {
+function installPinchZoom(record) {
   const pages = record.pagesElement;
-
-  const beginManualZoom = () => {
-    clearTimeout(record.wheelTimer);
-    record.wheelTimer = null;
-    record.doubleTapRestore = null;
-    record.scrollRevision += 1;
-    record.interacting = true;
-  };
-
-  const finishManualZoom = () => {
-    record.interacting = false;
-    invalidatePages(record);
-  };
 
   const touchStart = (event) => {
     if (event.touches.length === 1) {
@@ -322,6 +268,7 @@ function installZoomGestures(record) {
 
   const touchMove = (event) => {
     if (event.touches.length === 2) {
+      record.tapCandidate = null;
       record.touchCenter = {
         x: (event.touches[0].clientX + event.touches[1].clientX) / 2,
         y: (event.touches[0].clientY + event.touches[1].clientY) / 2,
@@ -349,6 +296,7 @@ function installZoomGestures(record) {
       return;
     }
     if (record.suppressTapAfterPinch) {
+      record.tapCandidate = null;
       if (!event.touches.length) record.suppressTapAfterPinch = false;
       return;
     }
@@ -369,18 +317,17 @@ function installZoomGestures(record) {
       && Math.hypot(touch.clientX - previous.x, touch.clientY - previous.y) <= DOUBLE_TAP_DISTANCE
     ) {
       event.preventDefault();
+      resetToOverview(record, touch.clientX, touch.clientY);
       record.lastTap = null;
-      record.lastTouchDoubleAt = now;
-      toggleDoubleTapZoom(record, touch.clientX, touch.clientY);
     }
   };
 
   const pinchStart = () => {
-    beginManualZoom();
-    record.lastTap = null;
+    record.interacting = true;
     record.tapCandidate = null;
-    record.gesture = null;
+    record.lastTap = null;
     record.suppressTapAfterPinch = true;
+    record.gesture = null;
     const center = record.touchCenter;
     record.pinch = {
       startZoom: record.zoom,
@@ -402,11 +349,7 @@ function installZoomGestures(record) {
       pinch.center = center;
       pinch.anchor = anchorAtPoint(record, center.x, center.y);
     }
-    pinch.zoom = clamp(
-      pinch.zoom * distance / previousDistance,
-      MIN_ZOOM,
-      MAX_ZOOM
-    );
+    pinch.zoom = clamp(pinch.zoom * distance / previousDistance, MIN_ZOOM, MAX_ZOOM);
     pinch.center = center;
     if (pinch.frame === null) {
       pinch.frame = requestAnimationFrame(() => {
@@ -426,39 +369,17 @@ function installZoomGestures(record) {
     }
     clearPinchPreview(record, pinch);
     applyZoom(record, pinch.zoom, pinch.center.x, pinch.center.y, pinch.anchor);
-    finishManualZoom();
-  };
-
-  const doubleClick = (event) => {
-    event.preventDefault();
-    if (performance.now() - record.lastTouchDoubleAt < 700) return;
-    toggleDoubleTapZoom(record, event.clientX, event.clientY);
-  };
-
-  const wheel = (event) => {
-    if (!event.ctrlKey) return;
-    event.preventDefault();
-    beginManualZoom();
-    const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE
-      ? 16
-      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? window.innerHeight : 1;
-    const delta = clamp(event.deltaY * unit, -60, 60);
-    applyZoom(
-      record,
-      record.zoom * Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY),
-      event.clientX,
-      event.clientY
-    );
-    record.wheelTimer = setTimeout(() => {
-      record.wheelTimer = null;
-      finishManualZoom();
-    }, WHEEL_RENDER_DELAY);
+    record.interacting = false;
+    invalidatePages(record);
   };
 
   const gestureStart = (event) => {
     event.preventDefault();
     if (record.pinch) return;
-    beginManualZoom();
+    record.interacting = true;
+    record.tapCandidate = null;
+    record.lastTap = null;
+    record.suppressTapAfterPinch = true;
     const x = Number.isFinite(event.clientX) ? event.clientX : window.innerWidth / 2;
     const y = Number.isFinite(event.clientY) ? event.clientY : window.innerHeight / 2;
     record.gesture = {
@@ -481,15 +402,20 @@ function installZoomGestures(record) {
     event.preventDefault();
     if (!record.gesture) return;
     record.gesture = null;
-    finishManualZoom();
+    record.interacting = false;
+    invalidatePages(record);
   };
 
-  pages.addEventListener("touchstart", touchStart, { passive: false });
-  pages.addEventListener("touchmove", touchMove, { passive: false });
+  const doubleClick = (event) => {
+    event.preventDefault();
+    resetToOverview(record, event.clientX, event.clientY);
+  };
+
+  pages.addEventListener("touchstart", touchStart, { passive: true });
+  pages.addEventListener("touchmove", touchMove, { passive: true });
   pages.addEventListener("touchend", touchEnd, { passive: false });
   pages.addEventListener("touchcancel", touchEnd, { passive: false });
   pages.addEventListener("dblclick", doubleClick);
-  pages.addEventListener("wheel", wheel, { passive: false });
   pages.addEventListener("gesturestart", gestureStart, { passive: false });
   pages.addEventListener("gesturechange", gestureChange, { passive: false });
   pages.addEventListener("gestureend", gestureEnd, { passive: false });
@@ -501,13 +427,12 @@ function installZoomGestures(record) {
     signal: new AbortController().signal,
   });
 
-  record.removeGestures = () => {
+  record.removePinchZoom = () => {
     pages.removeEventListener("touchstart", touchStart);
     pages.removeEventListener("touchmove", touchMove);
     pages.removeEventListener("touchend", touchEnd);
     pages.removeEventListener("touchcancel", touchEnd);
     pages.removeEventListener("dblclick", doubleClick);
-    pages.removeEventListener("wheel", wheel);
     pages.removeEventListener("gesturestart", gestureStart);
     pages.removeEventListener("gesturechange", gestureChange);
     pages.removeEventListener("gestureend", gestureEnd);
@@ -538,11 +463,10 @@ function observePages(record) {
 
 function dispose(record) {
   record.generation += 1;
-  clearTimeout(record.wheelTimer);
   record.observer?.disconnect();
-  record.removeGestures?.();
+  record.removePinchZoom?.();
   record.pagesElement.style.removeProperty("--pdf-page-width");
-  record.pagesElement.classList.remove("pdf-zoomed");
+  record.pagesElement.classList.remove("pdf-pinch-preview");
   record.pagesElement.querySelectorAll("canvas").forEach(clearCanvas);
   try {
     record.document?.destroy().catch(() => {});
@@ -573,19 +497,16 @@ export async function showPdf(url, pagesElement, messageElement, loadingText = "
     interacting: false,
     pinch: null,
     gesture: null,
-    wheelTimer: null,
+    touchCenter: null,
     suppressTapAfterPinch: false,
     tapCandidate: null,
     lastTap: null,
-    lastTouchDoubleAt: -Infinity,
-    doubleTapRestore: null,
-    scrollRevision: 0,
     onLink,
   };
   views.set(pagesElement, record);
   pagesElement.replaceChildren();
   setPageWidth(record);
-  installZoomGestures(record);
+  installPinchZoom(record);
   if (messageElement) messageElement.textContent = loadingText;
 
   try {
@@ -629,7 +550,6 @@ export function resizePdf(pagesElement) {
   const overviewWidth = Math.min(availablePageWidth(pagesElement), 1100);
   if (Math.abs(overviewWidth - record.overviewWidth) < 1) return;
   record.overviewWidth = overviewWidth;
-  record.doubleTapRestore = null;
   setPageWidth(record);
   invalidatePages(record);
 }
