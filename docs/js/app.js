@@ -76,7 +76,7 @@ function setService(index, preferredTitle = null) {
     : -1;
   musicIndex = matchingIndex >= 0 ? matchingIndex : 0;
   settingIndex = preferredSettingIndex(music[musicIndex]);
-  render();
+  render("push");
 }
 
 function selectDay(day) {
@@ -108,7 +108,7 @@ function moveMusic(offset) {
   rememberPosition("music");
   musicIndex = (musicIndex + offset + music.length) % music.length;
   settingIndex = preferredSettingIndex(music[musicIndex]);
-  render();
+  render("push");
 }
 
 function pagesFor(mode) {
@@ -250,7 +250,7 @@ function selectMusicLink(annotation) {
   setViewMode("music");
   musicIndex = selected.pieceIndex;
   settingIndex = selected.linkIndex;
-  render();
+  render("push");
   return true;
 }
 
@@ -281,9 +281,10 @@ function switchView() {
   if (viewMode === "notes") activeNotesUrl = url;
   else activeMusicUrl = url;
   loadView(url, viewMode, viewMode === "notes" ? "Loading notes…" : "Loading music…");
+  updateUrl("push");
 }
 
-function render() {
+function render(historyMode = "none") {
   const service = services[serviceIndex];
   if (!service) {
     clearPdf(elements.musicPages, elements.message, "No services are available yet.");
@@ -355,7 +356,7 @@ function render() {
       viewMode === "music" ? elements.message : null,
       "No linked music was found in this service."
     );
-    updateUrl();
+    updateUrl(historyMode);
     return;
   }
 
@@ -376,7 +377,7 @@ function render() {
       rememberPosition("music");
       settingIndex = index;
       elements.settingsDialog.close();
-      render();
+      render("push");
     });
     elements.settings.append(button);
   });
@@ -384,14 +385,24 @@ function render() {
   activeMusicUrl = musicUrl;
   loadView(musicUrl, "music", "Loading music…");
 
-  updateUrl();
+  updateUrl(historyMode);
 }
 
-function updateUrl() {
+function updateUrl(mode) {
   const service = services[serviceIndex];
   if (!service) return;
-  const parameters = new URLSearchParams({ date: service.date || "", service: service.type, music: String(musicIndex) });
-  history.replaceState(null, "", `${location.pathname}?${parameters}`);
+  const parameters = new URLSearchParams({
+    date: service.date || "",
+    service: service.type,
+    music: String(musicIndex),
+    setting: String(settingIndex),
+    view: viewMode,
+  });
+  const url = `${location.pathname}?${parameters}`;
+  const currentUrl = `${location.pathname}${location.search}`;
+  if (url === currentUrl) return;
+  if (mode === "push") history.pushState(null, "", url);
+  else if (mode === "replace") history.replaceState(null, "", url);
 }
 
 function restoreUrlChoice() {
@@ -399,11 +410,22 @@ function restoreUrlChoice() {
   const day = parameters.get("date");
   const type = parameters.get("service");
   const match = services.findIndex((service) => service.date === day && service.type === type);
-  if (match < 0) return;
-  serviceIndex = match;
+  serviceIndex = match >= 0 ? match : chooseInitialService();
+  if (serviceIndex < 0) return;
+
   const requestedMusic = Number(parameters.get("music"));
-  const lastMusic = Math.max(services[match].music.length - 1, 0);
+  const lastMusic = Math.max(services[serviceIndex].music.length - 1, 0);
   musicIndex = Number.isInteger(requestedMusic) ? Math.min(Math.max(requestedMusic, 0), lastMusic) : 0;
+  const piece = services[serviceIndex].music[musicIndex];
+  const requestedSetting = parameters.has("setting") ? Number(parameters.get("setting")) : NaN;
+  const lastSetting = Math.max((piece?.links.length || 1) - 1, 0);
+  settingIndex = Number.isInteger(requestedSetting)
+    ? Math.min(Math.max(requestedSetting, 0), lastSetting)
+    : preferredSettingIndex(piece);
+
+  const requestedView = parameters.get("view");
+  const nextView = requestedView === "music" && piece?.links[settingIndex] ? "music" : "notes";
+  setViewMode(nextView);
 }
 
 elements.previousDay.addEventListener("click", () => moveDay(-1));
@@ -417,7 +439,7 @@ elements.musicSelect.addEventListener("change", (event) => {
   rememberPosition("music");
   musicIndex = Number(event.target.value);
   settingIndex = preferredSettingIndex(services[serviceIndex]?.music[musicIndex]);
-  render();
+  render("push");
 });
 elements.settingButton.addEventListener("click", () => elements.settingsDialog.showModal());
 elements.closeSettings.addEventListener("click", () => elements.settingsDialog.close());
@@ -425,6 +447,12 @@ elements.settingsDialog.addEventListener("click", (event) => {
   if (event.target === elements.settingsDialog) elements.settingsDialog.close();
 });
 elements.viewToggle.addEventListener("click", switchView);
+window.addEventListener("popstate", () => {
+  rememberPosition(viewMode);
+  if (elements.settingsDialog.open) elements.settingsDialog.close();
+  restoreUrlChoice();
+  render("none");
+});
 try {
   const response = await fetch("./data/music.json", { cache: "no-store" });
   if (!response.ok) throw new Error(`music.json returned ${response.status}`);
@@ -439,8 +467,7 @@ try {
   );
   serviceIndex = chooseInitialService();
   restoreUrlChoice();
-  settingIndex = preferredSettingIndex(services[serviceIndex]?.music[musicIndex]);
-  render();
+  render("replace");
 } catch (error) {
   console.error(error);
   clearPdf(elements.musicPages, elements.message, "The music library could not be loaded. Try reloading the page.");
