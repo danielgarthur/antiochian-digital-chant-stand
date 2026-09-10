@@ -1,15 +1,47 @@
-import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=a11623e46cbe";
+import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=0087c0b6e214";
 
 const elements = Object.fromEntries(
   [
-    "schedule", "scheduleDay", "scheduleService", "previousDay", "dateSelect", "nextDay", "dateLabel", "previousService",
-    "nextService", "serviceTabs", "previousMusic", "nextMusic",
-    "musicSelect", "musicPosition", "settingButton", "settingsDialog",
-    "closeSettings", "settings", "viewToggle", "notesIcon", "musicIcon", "musicPages", "notesPages", "message",
-  ].map((id) => [id, document.getElementById(id)])
+    "schedule",
+    "scheduleLabel",
+    "scheduleDay",
+    "scheduleService",
+    "previousDay",
+    "dateSelect",
+    "nextDay",
+    "dateLabel",
+    "previousService",
+    "nextService",
+    "serviceTabs",
+    "previousMusic",
+    "nextMusic",
+    "musicSelect",
+    "musicPosition",
+    "settingButton",
+    "settingsDialog",
+    "closeSettings",
+    "settings",
+    "performanceDialog",
+    "closePerformance",
+    "performanceProfile",
+    "performanceDescription",
+    "customPerformance",
+    "pixelRatioCap",
+    "renderConcurrency",
+    "renderLookahead",
+    "performanceMetrics",
+    "resetPerformance",
+    "viewToggle",
+    "notesIcon",
+    "musicIcon",
+    "musicPages",
+    "notesPages",
+    "message",
+  ].map((id) => [id, document.getElementById(id)]),
 );
 
 let services = [];
+let pdfComplexity = {};
 let datedDays = [];
 let serviceIndex = -1;
 let musicIndex = 0;
@@ -29,18 +61,118 @@ let restoreGeneration = 0;
 let restoringPosition = false;
 let positionSaveTimer = null;
 let positionsDirty = false;
+let lastPerformanceMetric = null;
+const DEBUG_REQUESTED = new URLSearchParams(location.search).get("debug") === "1";
+const PERFORMANCE_STORAGE_KEY = "antiochian-chant-stand:pdf-performance:v1";
+const PERFORMANCE_PROFILES = {
+  current: {
+    name: "current",
+    pixelRatioCap: 2,
+    maxConcurrent: Infinity,
+    rootMargin: "150% 0px",
+    adaptiveQuality: false,
+    description: "Exact original resolution, lookahead, and render scheduling.",
+  },
+  auto: {
+    name: "auto",
+    pixelRatioCap: 2,
+    maxConcurrent: 1,
+    rootMargin: "50% 0px",
+    adaptiveQuality: true,
+    description: "Chooses resolution per page from build-time image complexity and measured render time.",
+  },
+  sharp: {
+    name: "sharp",
+    pixelRatioCap: 2,
+    maxConcurrent: 1,
+    rootMargin: "50% 0px",
+    adaptiveQuality: false,
+    description: "Keeps current image quality while limiting competing page renders.",
+  },
+  fast: {
+    name: "fast",
+    pixelRatioCap: 1,
+    maxConcurrent: 1,
+    rootMargin: "0px",
+    adaptiveQuality: false,
+    description: "Renders only visible pages at 1× for the lowest CPU and memory use.",
+  },
+};
+let performancePreferences = loadPerformancePreferences();
 
 // Earlier entries win. Settings not listed here keep their source-document order.
 const PREFERRED_SETTINGS = ["STAM", "CROW", "KARAM", "EL MASSIH", "CHANT"];
 
+function loadPerformancePreferences() {
+  const defaults = {
+    profile: "current",
+    pixelRatioCap: 1.5,
+    maxConcurrent: 1,
+    lookahead: 50,
+  };
+  try {
+    const stored = JSON.parse(localStorage.getItem(PERFORMANCE_STORAGE_KEY));
+    if (!stored || typeof stored !== "object") return defaults;
+    return {
+      profile: [...Object.keys(PERFORMANCE_PROFILES), "custom"].includes(stored.profile)
+        ? stored.profile
+        : defaults.profile,
+      pixelRatioCap: [1, 1.25, 1.5, 2].includes(stored.pixelRatioCap)
+        ? stored.pixelRatioCap
+        : defaults.pixelRatioCap,
+      maxConcurrent: [1, 2, "unlimited"].includes(stored.maxConcurrent)
+        ? stored.maxConcurrent
+        : defaults.maxConcurrent,
+      lookahead: [0, 50, 100, 150].includes(stored.lookahead)
+        ? stored.lookahead
+        : defaults.lookahead,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function savePerformancePreferences() {
+  try {
+    localStorage.setItem(PERFORMANCE_STORAGE_KEY, JSON.stringify(performancePreferences));
+  } catch {
+    // A private browsing context may reject local storage writes.
+  }
+}
+
+function activePerformanceProfile() {
+  if (performancePreferences.profile !== "custom") {
+    return PERFORMANCE_PROFILES[performancePreferences.profile] || PERFORMANCE_PROFILES.current;
+  }
+  return {
+    name: "custom",
+    pixelRatioCap: performancePreferences.pixelRatioCap,
+    maxConcurrent:
+      performancePreferences.maxConcurrent === "unlimited"
+        ? Infinity
+        : performancePreferences.maxConcurrent,
+    rootMargin: `${performancePreferences.lookahead}% 0px`,
+    adaptiveQuality: false,
+    description: "Uses the resolution, concurrency, and lookahead values below.",
+  };
+}
+
+function relativePdfUrl(url) {
+  return url.replace(/^\.\//, "");
+}
+
 function validSavedPosition(position, now) {
   if (
-    !position || !Number.isInteger(position.page) || position.page < 0
-    || !Number.isFinite(position.updatedAt)
-    || position.updatedAt < now - POSITION_TTL_MS
-    || position.updatedAt > now + 24 * 60 * 60 * 1000
-  ) return false;
-  if (position.page === 0) return Number.isFinite(position.offset) && position.offset >= 0;
+    !position ||
+    !Number.isInteger(position.page) ||
+    position.page < 0 ||
+    !Number.isFinite(position.updatedAt) ||
+    position.updatedAt < now - POSITION_TTL_MS ||
+    position.updatedAt > now + 24 * 60 * 60 * 1000
+  )
+    return false;
+  if (position.page === 0)
+    return Number.isFinite(position.offset) && position.offset >= 0;
   return Number.isFinite(position.progress);
 }
 
@@ -51,9 +183,14 @@ function normalizedPositionEntries(entries, now = Date.now()) {
       if (!Array.isArray(entry) || typeof entry[0] !== "string") return;
       const [url, position] = entry;
       if (!validSavedPosition(position, now)) return;
-      const normalized = position.page === 0
-        ? { page: 0, offset: position.offset, updatedAt: position.updatedAt }
-        : { page: position.page, progress: position.progress, updatedAt: position.updatedAt };
+      const normalized =
+        position.page === 0
+          ? { page: 0, offset: position.offset, updatedAt: position.updatedAt }
+          : {
+              page: position.page,
+              progress: position.progress,
+              updatedAt: position.updatedAt,
+            };
       const existing = newestByUrl.get(url);
       if (!existing || normalized.updatedAt > existing.updatedAt) {
         newestByUrl.set(url, normalized);
@@ -145,34 +282,49 @@ function preferredSettingIndex(piece) {
 
 const localDate = () => {
   const now = new Date();
-  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
 };
 
 const servicesOn = (day) => services.filter((service) => service.date === day);
 
 function preferredService(candidates, predicate) {
-  return candidates.find((service) => !service.type.startsWith("BILINGUAL_") && predicate(service))
-    || candidates.find(predicate);
+  return (
+    candidates.find(
+      (service) => !service.type.startsWith("BILINGUAL_") && predicate(service),
+    ) || candidates.find(predicate)
+  );
 }
 
 function preferredOrthros(candidates) {
-  return preferredService(candidates, (service) => service.type === "ORTHROS" || service.type.endsWith("_ORTHROS"));
+  return preferredService(
+    candidates,
+    (service) =>
+      service.type === "ORTHROS" || service.type.endsWith("_ORTHROS"),
+  );
 }
 
 function preferredLiturgy(candidates) {
-  return preferredService(candidates, (service) => (
-    service.type === "READ"
-    || service.type === "LITURGY"
-    || service.type.includes("DIVINE_LITURGY")
-  ));
+  return preferredService(
+    candidates,
+    (service) =>
+      service.type === "READ" ||
+      service.type === "LITURGY" ||
+      service.type.includes("DIVINE_LITURGY"),
+  );
 }
 
 function preferredGreatVespers(candidates) {
-  return preferredService(candidates, (service) => (
-    service.type === "GREAT_VESPERS"
-    || service.type === "VESP"
-    || service.type.endsWith("_GREAT_VESPERS")
-  ));
+  return preferredService(
+    candidates,
+    (service) =>
+      service.type === "GREAT_VESPERS" ||
+      service.type === "VESP" ||
+      service.type.endsWith("_GREAT_VESPERS"),
+  );
 }
 
 function preferredServiceForDay(candidates, day) {
@@ -188,7 +340,11 @@ function preferredServiceForDay(candidates, day) {
 function formatDay(value) {
   if (!value) return "Other music";
   return new Intl.DateTimeFormat(undefined, {
-    weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
   }).format(new Date(`${value}T12:00:00Z`));
 }
 
@@ -239,18 +395,25 @@ function updateServiceScrollAffordance() {
   const { clientWidth, scrollLeft, scrollWidth } = elements.serviceTabs;
   const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
   elements.serviceTabs.classList.toggle("can-scroll-left", scrollLeft > 1);
-  elements.serviceTabs.classList.toggle("can-scroll-right", scrollLeft < maxScrollLeft - 1);
+  elements.serviceTabs.classList.toggle(
+    "can-scroll-right",
+    scrollLeft < maxScrollLeft - 1,
+  );
 }
 
 function revealSelectedService(behavior = "auto", restoreFocus = false) {
-  const selectedTab = elements.serviceTabs.querySelector('[aria-selected="true"]');
+  const selectedTab = elements.serviceTabs.querySelector(
+    '[aria-selected="true"]',
+  );
   if (!selectedTab) return;
   if (restoreFocus) selectedTab?.focus({ preventScroll: true });
   const stripBounds = elements.serviceTabs.getBoundingClientRect();
   const tabBounds = selectedTab.getBoundingClientRect();
-  const centeredLeft = elements.serviceTabs.scrollLeft
-    + tabBounds.left - stripBounds.left
-    - (elements.serviceTabs.clientWidth - tabBounds.width) / 2;
+  const centeredLeft =
+    elements.serviceTabs.scrollLeft +
+    tabBounds.left -
+    stripBounds.left -
+    (elements.serviceTabs.clientWidth - tabBounds.width) / 2;
   elements.serviceTabs.scrollTo({ left: centeredLeft, behavior });
   updateServiceScrollAffordance();
 }
@@ -291,7 +454,9 @@ function rememberPosition(mode) {
   // Anchor the first unobscured line to a page and a proportional position in
   // that page. Unlike a raw pixel offset, this remains meaningful when tablet
   // rotation changes the rendered page height.
-  const readingLine = document.querySelector(".controls").getBoundingClientRect().bottom;
+  const readingLine = document
+    .querySelector(".controls")
+    .getBoundingClientRect().bottom;
   let shell = null;
   for (const candidate of shells) {
     if (candidate.getBoundingClientRect().top > readingLine) break;
@@ -329,10 +494,15 @@ function restorePosition(mode, url) {
   } else if (savedPosition) {
     const shell = pages.querySelector(`[data-page="${savedPosition.page}"]`);
     if (shell) {
-      const readingLine = document.querySelector(".controls").getBoundingClientRect().bottom;
+      const readingLine = document
+        .querySelector(".controls")
+        .getBoundingClientRect().bottom;
       const bounds = shell.getBoundingClientRect();
-      top = window.scrollY + bounds.top
-        + savedPosition.progress * bounds.height - readingLine;
+      top =
+        window.scrollY +
+        bounds.top +
+        savedPosition.progress * bounds.height -
+        readingLine;
     }
   }
   window.scrollTo({ top });
@@ -343,14 +513,24 @@ function restorePosition(mode, url) {
   });
 }
 
-window.addEventListener("scroll", () => {
-  if (restoringPosition || resizeTimer !== null || window.innerWidth !== viewportWidth) return;
-  if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
-  scrollFrame = requestAnimationFrame(() => {
-    scrollFrame = null;
-    if (!restoringPosition && window.innerWidth === viewportWidth) rememberPosition(viewMode);
-  });
-}, { passive: true });
+window.addEventListener(
+  "scroll",
+  () => {
+    if (
+      restoringPosition ||
+      resizeTimer !== null ||
+      window.innerWidth !== viewportWidth
+    )
+      return;
+    if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = null;
+      if (!restoringPosition && window.innerWidth === viewportWidth)
+        rememberPosition(viewMode);
+    });
+  },
+  { passive: true },
+);
 
 function flushCurrentPosition() {
   if (scrollFrame !== null) {
@@ -390,9 +570,65 @@ function loadView(url, mode, loadingText) {
   const pages = pagesFor(mode);
   const message = viewMode === mode ? elements.message : null;
   const onLink = mode === "notes" ? selectMusicLink : null;
-  showPdf(url, pages, message, loadingText, onLink).then(() => {
+  showPdf(url, pages, message, loadingText, onLink, {
+    profile: activePerformanceProfile(),
+    complexity: pdfComplexity[relativePdfUrl(url)] || [],
+    onMetric: updatePerformanceMetric,
+  }).then(() => {
     if (viewMode === mode) restorePosition(mode, url);
   });
+}
+
+function updatePerformanceMetric(metric) {
+  lastPerformanceMetric = metric;
+  updatePerformanceDialog();
+}
+
+function updatePerformanceDialog() {
+  const profile = activePerformanceProfile();
+  elements.performanceProfile.value = performancePreferences.profile;
+  elements.performanceDescription.textContent = profile.description;
+  elements.customPerformance.disabled = performancePreferences.profile !== "custom";
+  elements.pixelRatioCap.value = String(performancePreferences.pixelRatioCap);
+  elements.renderConcurrency.value = String(performancePreferences.maxConcurrent);
+  elements.renderLookahead.value = String(performancePreferences.lookahead);
+  if (!lastPerformanceMetric) {
+    elements.performanceMetrics.textContent = [
+      `Profile: ${profile.name}`,
+      `Device: ${navigator.deviceMemory || "?"} GB, ${navigator.hardwareConcurrency || "?"} cores, ${devicePixelRatio || 1}× DPR`,
+      "No page timing recorded yet.",
+    ].join("\n");
+    return;
+  }
+  const metric = lastPerformanceMetric;
+  const detail = metric.type === "page-rendered"
+    ? `Page ${metric.page}: ${metric.durationMs} ms, ${metric.pixelRatio}×, complexity ${metric.complexity}, ${(metric.canvasPixels / 1_000_000).toFixed(1)} MP`
+    : `Document ready: ${metric.durationMs} ms, ${metric.pages} pages`;
+  elements.performanceMetrics.textContent = [
+    `Profile: ${profile.name}`,
+    `Device: ${navigator.deviceMemory || "?"} GB, ${navigator.hardwareConcurrency || "?"} cores, ${devicePixelRatio || 1}× DPR`,
+    detail,
+  ].join("\n");
+}
+
+function reloadActivePdf() {
+  const url = urlFor(viewMode);
+  if (!url) return;
+  const pages = pagesFor(viewMode);
+  clearPdf(pages, elements.message, viewMode === "notes" ? "Loading notes…" : "Loading music…");
+  loadView(url, viewMode, viewMode === "notes" ? "Loading notes…" : "Loading music…");
+}
+
+function setPerformancePreferences(changes) {
+  performancePreferences = { ...performancePreferences, ...changes };
+  savePerformancePreferences();
+  updatePerformanceDialog();
+  reloadActivePdf();
+}
+
+function openPerformanceDialog() {
+  updatePerformanceDialog();
+  if (!elements.performanceDialog.open) elements.performanceDialog.showModal();
 }
 
 function normalizedUrl(value) {
@@ -415,13 +651,18 @@ function selectMusicLink(annotation) {
   });
   if (!candidates.length) return false;
 
-  const samePage = candidates.filter(({ link }) => link.sourcePage === annotation.page);
+  const samePage = candidates.filter(
+    ({ link }) => link.sourcePage === annotation.page,
+  );
   const matches = samePage.length ? samePage : candidates;
   const selected = matches.reduce((closest, candidate) => {
-    if (candidate.link.sourceTop == null || annotation.top == null) return closest;
+    if (candidate.link.sourceTop == null || annotation.top == null)
+      return closest;
     if (closest.link.sourceTop == null) return candidate;
-    return Math.abs(candidate.link.sourceTop - annotation.top)
-      < Math.abs(closest.link.sourceTop - annotation.top) ? candidate : closest;
+    return Math.abs(candidate.link.sourceTop - annotation.top) <
+      Math.abs(closest.link.sourceTop - annotation.top)
+      ? candidate
+      : closest;
   });
 
   musicIndex = selected.pieceIndex;
@@ -439,7 +680,8 @@ function setViewMode(nextMode) {
   viewMode = nextMode;
   pagesFor(viewMode).hidden = false;
   document.body.classList.toggle("notes-mode", viewMode === "notes");
-  const toggleLabel = viewMode === "notes" ? "Return to music" : "Show service notes";
+  const toggleLabel =
+    viewMode === "notes" ? "Return to music" : "Show service notes";
   elements.notesIcon.toggleAttribute("hidden", viewMode === "notes");
   elements.musicIcon.toggleAttribute("hidden", viewMode !== "notes");
   elements.viewToggle.setAttribute("aria-label", toggleLabel);
@@ -455,17 +697,28 @@ function switchView() {
 
   setViewMode(nextMode);
 
-  const url = viewMode === "notes" ? `./${service.url}` : `./${piece.links[settingIndex].url}`;
+  const url =
+    viewMode === "notes"
+      ? `./${service.url}`
+      : `./${piece.links[settingIndex].url}`;
   if (viewMode === "notes") activeNotesUrl = url;
   else activeMusicUrl = url;
-  loadView(url, viewMode, viewMode === "notes" ? "Loading notes…" : "Loading music…");
+  loadView(
+    url,
+    viewMode,
+    viewMode === "notes" ? "Loading notes…" : "Loading music…",
+  );
   updateUrl("push");
 }
 
 function render(historyMode = "none") {
   const service = services[serviceIndex];
   if (!service) {
-    clearPdf(elements.musicPages, elements.message, "No services are available yet.");
+    clearPdf(
+      elements.musicPages,
+      elements.message,
+      "No services are available yet.",
+    );
     clearPdf(elements.notesPages, null, "");
     return;
   }
@@ -475,7 +728,8 @@ function render(historyMode = "none") {
 
   elements.dateLabel.textContent = formatDay(service.date);
   elements.dateSelect.value = service.date || "";
-  const compactDay = service.date === localDate() ? "Today" : formatDay(service.date);
+  const compactDay =
+    service.date === localDate() ? "Today" : formatDay(service.date);
   elements.scheduleDay.textContent = compactDay;
   elements.scheduleService.textContent = service.label;
   const restoreTabFocus = elements.serviceTabs.contains(document.activeElement);
@@ -492,23 +746,28 @@ function render(historyMode = "none") {
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", String(selected));
       button.tabIndex = selected ? 0 : -1;
-      button.addEventListener("click", () => setService(services.indexOf(item)));
+      button.addEventListener("click", () =>
+        setService(services.indexOf(item)),
+      );
       button.addEventListener("keydown", (event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
         focusAdjacentServiceTab(button, event.key === "ArrowLeft" ? -1 : 1);
       });
       return button;
-    })
+    }),
   );
   requestAnimationFrame(() => {
-    const behavior = historyMode === "push" && !matchMedia("(prefers-reduced-motion: reduce)").matches
-      ? "smooth"
-      : "auto";
+    const behavior =
+      historyMode === "push" &&
+      !matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "smooth"
+        : "auto";
     revealSelectedService(behavior, restoreTabFocus);
   });
   elements.previousDay.disabled = dayPosition <= 0;
-  elements.nextDay.disabled = dayPosition < 0 || dayPosition >= datedDays.length - 1;
+  elements.nextDay.disabled =
+    dayPosition < 0 || dayPosition >= datedDays.length - 1;
   const dayServices = servicesOn(service.date);
   const servicePosition = dayServices.indexOf(service);
   elements.previousService.disabled = servicePosition <= 0;
@@ -517,18 +776,27 @@ function render(historyMode = "none") {
   const nextService = dayServices[servicePosition + 1];
   elements.previousService.setAttribute(
     "aria-label",
-    previousService ? `Previous service: ${previousService.label}, ${formatDay(previousService.date)}` : "Previous service"
+    previousService
+      ? `Previous service: ${previousService.label}, ${formatDay(previousService.date)}`
+      : "Previous service",
   );
   elements.nextService.setAttribute(
     "aria-label",
-    nextService ? `Next service: ${nextService.label}, ${formatDay(nextService.date)}` : "Next service"
+    nextService
+      ? `Next service: ${nextService.label}, ${formatDay(nextService.date)}`
+      : "Next service",
   );
 
   elements.musicSelect.replaceChildren(
     ...service.music.map((item, index) => {
-      const option = new Option(`${index + 1}. ${item.title}`, String(index), false, index === musicIndex);
+      const option = new Option(
+        `${index + 1}. ${item.title}`,
+        String(index),
+        false,
+        index === musicIndex,
+      );
       return option;
-    })
+    }),
   );
   elements.musicSelect.disabled = !service.music.length;
   elements.musicPosition.textContent = service.music.length
@@ -538,19 +806,19 @@ function render(historyMode = "none") {
   elements.nextMusic.disabled = !service.music.length;
   elements.settings.replaceChildren();
 
-  if (viewMode === "notes" && service.url) {
-    const notesUrl = `./${service.url}`;
-    activeNotesUrl = notesUrl;
-    loadView(notesUrl, "notes", "Loading notes…");
+  activeNotesUrl = service.url ? `./${service.url}` : null;
+  if (viewMode === "notes" && activeNotesUrl) {
+    loadView(activeNotesUrl, "notes", "Loading notes…");
   }
 
   if (!piece) {
+    activeMusicUrl = null;
     elements.settingButton.hidden = true;
     if (elements.settingsDialog.open) elements.settingsDialog.close();
     clearPdf(
       elements.musicPages,
       viewMode === "music" ? elements.message : null,
-      "No linked music was found in this service."
+      "No linked music was found in this service.",
     );
     updateUrl(historyMode);
     return;
@@ -560,7 +828,7 @@ function render(historyMode = "none") {
   elements.settingButton.textContent = `${piece.links[settingIndex].setting} ▾`;
   elements.settingButton.setAttribute(
     "aria-label",
-    `Setting: ${piece.links[settingIndex].setting}. Choose another setting`
+    `Setting: ${piece.links[settingIndex].setting}. Choose another setting`,
   );
 
   piece.links.forEach((link, index) => {
@@ -579,7 +847,7 @@ function render(historyMode = "none") {
   });
   const musicUrl = `./${piece.links[settingIndex].url}`;
   activeMusicUrl = musicUrl;
-  loadView(musicUrl, "music", "Loading music…");
+  if (viewMode === "music") loadView(musicUrl, "music", "Loading music…");
 
   updateUrl(historyMode);
 }
@@ -605,31 +873,42 @@ function restoreUrlChoice() {
   const parameters = new URLSearchParams(location.search);
   const day = parameters.get("date");
   const type = parameters.get("service");
-  const match = services.findIndex((service) => service.date === day && service.type === type);
+  const match = services.findIndex(
+    (service) => service.date === day && service.type === type,
+  );
   serviceIndex = match >= 0 ? match : chooseInitialService();
   if (serviceIndex < 0) return;
 
   const requestedMusic = Number(parameters.get("music"));
   const lastMusic = Math.max(services[serviceIndex].music.length - 1, 0);
-  musicIndex = Number.isInteger(requestedMusic) ? Math.min(Math.max(requestedMusic, 0), lastMusic) : 0;
+  musicIndex = Number.isInteger(requestedMusic)
+    ? Math.min(Math.max(requestedMusic, 0), lastMusic)
+    : 0;
   const piece = services[serviceIndex].music[musicIndex];
-  const requestedSetting = parameters.has("setting") ? Number(parameters.get("setting")) : NaN;
+  const requestedSetting = parameters.has("setting")
+    ? Number(parameters.get("setting"))
+    : NaN;
   const lastSetting = Math.max((piece?.links.length || 1) - 1, 0);
   settingIndex = Number.isInteger(requestedSetting)
     ? Math.min(Math.max(requestedSetting, 0), lastSetting)
     : preferredSettingIndex(piece);
 
   const requestedView = parameters.get("view");
-  const nextView = requestedView === "music" && piece?.links[settingIndex] ? "music" : "notes";
+  const nextView =
+    requestedView === "music" && piece?.links[settingIndex] ? "music" : "notes";
   setViewMode(nextView);
 }
 
 elements.previousDay.addEventListener("click", () => moveDay(-1));
 elements.nextDay.addEventListener("click", () => moveDay(1));
-elements.dateSelect.addEventListener("change", (event) => selectDay(event.target.value));
+elements.dateSelect.addEventListener("change", (event) =>
+  selectDay(event.target.value),
+);
 elements.previousService.addEventListener("click", () => moveService(-1));
 elements.nextService.addEventListener("click", () => moveService(1));
-elements.serviceTabs.addEventListener("scroll", updateServiceScrollAffordance, { passive: true });
+elements.serviceTabs.addEventListener("scroll", updateServiceScrollAffordance, {
+  passive: true,
+});
 elements.schedule.addEventListener("toggle", () => {
   if (!elements.schedule.open) return;
   requestAnimationFrame(() => revealSelectedService());
@@ -639,13 +918,75 @@ elements.nextMusic.addEventListener("click", () => moveMusic(1));
 elements.musicSelect.addEventListener("change", (event) => {
   rememberPosition("music");
   musicIndex = Number(event.target.value);
-  settingIndex = preferredSettingIndex(services[serviceIndex]?.music[musicIndex]);
+  settingIndex = preferredSettingIndex(
+    services[serviceIndex]?.music[musicIndex],
+  );
   render("push");
 });
-elements.settingButton.addEventListener("click", () => elements.settingsDialog.showModal());
-elements.closeSettings.addEventListener("click", () => elements.settingsDialog.close());
+elements.settingButton.addEventListener("click", () =>
+  elements.settingsDialog.showModal(),
+);
+elements.closeSettings.addEventListener("click", () =>
+  elements.settingsDialog.close(),
+);
 elements.settingsDialog.addEventListener("click", (event) => {
   if (event.target === elements.settingsDialog) elements.settingsDialog.close();
+});
+elements.closePerformance.addEventListener("click", () =>
+  elements.performanceDialog.close(),
+);
+elements.performanceDialog.addEventListener("click", (event) => {
+  if (event.target === elements.performanceDialog) elements.performanceDialog.close();
+});
+elements.performanceProfile.addEventListener("change", (event) => {
+  setPerformancePreferences({ profile: event.target.value });
+});
+elements.pixelRatioCap.addEventListener("change", (event) => {
+  setPerformancePreferences({
+    profile: "custom",
+    pixelRatioCap: Number(event.target.value),
+  });
+});
+elements.renderConcurrency.addEventListener("change", (event) => {
+  const value = event.target.value;
+  setPerformancePreferences({
+    profile: "custom",
+    maxConcurrent: value === "unlimited" ? value : Number(value),
+  });
+});
+elements.renderLookahead.addEventListener("change", (event) => {
+  setPerformancePreferences({
+    profile: "custom",
+    lookahead: Number(event.target.value),
+  });
+});
+elements.resetPerformance.addEventListener("click", () => {
+  setPerformancePreferences({ profile: "current" });
+});
+
+let performancePressTimer = null;
+let performancePressOpened = false;
+elements.scheduleLabel.addEventListener("pointerdown", () => {
+  performancePressOpened = false;
+  performancePressTimer = setTimeout(() => {
+    performancePressTimer = null;
+    performancePressOpened = true;
+    openPerformanceDialog();
+  }, 1400);
+});
+["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => {
+  elements.scheduleLabel.addEventListener(eventName, () => {
+    if (performancePressTimer !== null) clearTimeout(performancePressTimer);
+    performancePressTimer = null;
+  });
+});
+elements.scheduleLabel.addEventListener("click", (event) => {
+  if (!performancePressOpened) return;
+  event.preventDefault();
+  performancePressOpened = false;
+});
+document.addEventListener("keydown", (event) => {
+  if (event.shiftKey && event.key.toLowerCase() === "d") openPerformanceDialog();
 });
 elements.viewToggle.addEventListener("click", switchView);
 window.addEventListener("popstate", () => {
@@ -659,16 +1000,27 @@ try {
   if (!response.ok) throw new Error(`music.json returned ${response.status}`);
   const data = await response.json();
   services = data.services || [];
-  datedDays = [...new Set(services.map((service) => service.date).filter(Boolean))];
+  pdfComplexity = data.pdfComplexity || {};
+  datedDays = [
+    ...new Set(services.map((service) => service.date).filter(Boolean)),
+  ];
   elements.dateSelect.replaceChildren(
-    ...datedDays.map((day) => new Option(
-      day === localDate() ? `Today — ${formatDay(day)}` : formatDay(day),
-      day
-    ))
+    ...datedDays.map(
+      (day) =>
+        new Option(
+          day === localDate() ? `Today — ${formatDay(day)}` : formatDay(day),
+          day,
+        ),
+    ),
   );
   restoreUrlChoice();
   render("replace");
+  if (DEBUG_REQUESTED) openPerformanceDialog();
 } catch (error) {
   console.error(error);
-  clearPdf(elements.musicPages, elements.message, "The music library could not be loaded. Try reloading the page.");
+  clearPdf(
+    elements.musicPages,
+    elements.message,
+    "The music library could not be loaded. Try reloading the page.",
+  );
 }

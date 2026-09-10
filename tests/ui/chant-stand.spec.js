@@ -3,11 +3,12 @@ import { expect, test } from "@playwright/test";
 const VIEWER_STUB = String.raw`
   const loaded = new WeakMap();
 
-  export async function showPdf(url, pagesElement, messageElement, loadingText, onLink) {
+  export async function showPdf(url, pagesElement, messageElement, loadingText, onLink, options = {}) {
     const absoluteUrl = new URL(url, window.location.href).href;
     if (loaded.get(pagesElement) === absoluteUrl) return;
     loaded.set(pagesElement, absoluteUrl);
     pagesElement.dataset.pdfUrl = absoluteUrl;
+    pagesElement.dataset.profile = options.profile?.name || "current";
     pagesElement.replaceChildren();
     for (let page = 1; page <= 3; page += 1) {
       const shell = document.createElement("div");
@@ -293,6 +294,30 @@ test("opens an embedded notes link in the matching music", async ({ page }) => {
   await expect(page.locator("#musicSelect")).toHaveValue("1");
   await expect(page).toHaveURL(/music=1.*view=music/);
   await expect(page.locator("#musicPages")).toHaveAttribute("data-pdf-url", /pdfs\/beta\.pdf$/);
+});
+
+test("defers the hidden music PDF until music is opened", async ({ page }) => {
+  await openApp(page, `?date=${localDay()}&service=ORTHROS&view=notes`);
+
+  await expect(page.locator("#notesPages")).toHaveAttribute("data-pdf-url", /services\/orthros\.pdf$/);
+  await expect(page.locator("#musicPages")).not.toHaveAttribute("data-pdf-url", /.+/);
+
+  await page.locator("#viewToggle").click();
+  await expect(page.locator("#musicPages")).toHaveAttribute("data-pdf-url", /pdfs\/alpha-stam\.pdf$/);
+});
+
+test("keeps current rendering as default and exposes opt-in Auto settings", async ({ page }) => {
+  await openApp(page, `?date=${localDay()}&service=ORTHROS&view=notes&debug=1`);
+
+  await expect(page.locator("#performanceDialog")).toBeVisible();
+  await expect(page.locator("#performanceProfile")).toHaveValue("current");
+  await expect(page.locator("#notesPages")).toHaveAttribute("data-profile", "current");
+
+  await page.locator("#performanceProfile").selectOption("auto");
+  await expect(page.locator("#notesPages")).toHaveAttribute("data-profile", "auto");
+  await expect.poll(() => page.evaluate(() => JSON.parse(
+    localStorage.getItem("antiochian-chant-stand:pdf-performance:v1"),
+  ).profile)).toBe("auto");
 });
 
 test("restores selections through browser history", async ({ page }) => {

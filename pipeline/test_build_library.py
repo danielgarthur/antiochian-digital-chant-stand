@@ -14,6 +14,25 @@ import requests
 
 
 class BuildLibraryTests(unittest.TestCase):
+    def test_pdf_page_complexity_classifies_image_decoding_work(self):
+        page = Mock()
+        page.get_image_info.return_value = []
+        self.assertEqual(build_library.pdf_page_complexity(page), 0)
+
+        page.get_image_info.return_value = [{"width": 800, "height": 600}]
+        self.assertEqual(
+            build_library.pdf_page_complexity(page),
+            build_library.PDF_COMPLEXITY_MEDIUM,
+        )
+
+        page.get_image_info.return_value = [
+            {"width": 100, "height": 100} for _ in range(40)
+        ]
+        self.assertEqual(
+            build_library.pdf_page_complexity(page),
+            build_library.PDF_COMPLEXITY_HEAVY,
+        )
+
     def test_manual_build_ignores_cached_api_downloads(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

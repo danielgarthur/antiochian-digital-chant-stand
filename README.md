@@ -158,3 +158,13 @@ across reloads and discarded tabs. Positions that have not been used for 90 days
 and only the 100 most recently used documents are retained. A PDF not previously opened
 starts at the top. Pages outside the nearby screen area are released from memory so
 repeated switching remains practical on tablets.
+
+The PDF performance menu is deliberately out of the main interface. Long-press the
+current service label for about 1.4 seconds, press Shift+D with a keyboard, or add
+`debug=1` to the page URL to open it. **Current compatibility** is the default and
+retains the original 2× resolution cap, concurrent rendering, and 150% page lookahead.
+**Auto per page** is opt-in: the build records a compact image-complexity tier for each
+page, and the viewer uses that tier plus actual render timing to reduce competing work
+for difficult pages. Sharp, Fast, and Custom profiles are also available. The selected
+profile is saved on the device, and **Restore current behavior** returns to the original
+rendering settings.

@@ -10,6 +10,15 @@ const DOUBLE_TAP_DISTANCE = 36;
 const TAP_MOVE_TOLERANCE = 12;
 const MAX_CANVAS_DIMENSION = 8192;
 const MAX_CANVAS_PIXELS = 16_000_000;
+const SLOW_RENDER_MS = 1000;
+
+const DEFAULT_RENDER_OPTIONS = {
+  name: "current",
+  pixelRatioCap: 2,
+  maxConcurrent: Infinity,
+  rootMargin: "150% 0px",
+  adaptiveQuality: false,
+};
 
 function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
@@ -41,6 +50,33 @@ function replacementCanvas(canvas) {
   return replacement;
 }
 
+function emitMetric(record, detail) {
+  record.onMetric?.({
+    url: record.url,
+    profile: record.options.name,
+    ...detail,
+  });
+}
+
+function pageComplexity(record, pageNumber) {
+  return record.complexity[pageNumber - 1] || 0;
+}
+
+function pixelRatioCap(record, pageNumber) {
+  let cap = record.options.pixelRatioCap;
+  if (!record.options.adaptiveQuality) return cap;
+
+  const deviceMemory = navigator.deviceMemory || 4;
+  const hardwareConcurrency = navigator.hardwareConcurrency || 4;
+  if (deviceMemory <= 2 || hardwareConcurrency <= 2) cap = Math.min(cap, 1.5);
+
+  const complexity = pageComplexity(record, pageNumber);
+  if (complexity >= 2) cap = Math.min(cap, 1.25);
+  else if (complexity === 1) cap = Math.min(cap, 1.5);
+  if (record.slowComplexities.has(complexity)) cap = Math.max(1, cap - 0.25);
+  return cap;
+}
+
 function availablePageWidth(pagesElement) {
   const parent = pagesElement.parentElement;
   if (!parent) return window.innerWidth;
@@ -56,9 +92,11 @@ async function renderVisiblePage(record, shell) {
   const generation = record.generation;
   const renderRevision = record.renderRevision;
   let renderTask = null;
+  const startedAt = performance.now();
+  const pageNumber = Number(shell.dataset.page);
 
   try {
-    const page = await record.document.getPage(Number(shell.dataset.page));
+    const page = await record.document.getPage(pageNumber);
     if (generation !== record.generation || renderRevision !== record.renderRevision) return;
     const natural = page.getViewport({ scale: 1 });
     installLinkAnnotations(record, page, shell, natural);
@@ -69,7 +107,7 @@ async function renderVisiblePage(record, shell) {
     const cssHeight = cssScale * natural.height;
     const pixelRatio = Math.min(
       devicePixelRatio || 1,
-      2,
+      pixelRatioCap(record, pageNumber),
       MAX_CANVAS_DIMENSION / Math.max(cssWidth, cssHeight),
       Math.sqrt(MAX_CANVAS_PIXELS / (cssWidth * cssHeight))
     );
@@ -87,6 +125,33 @@ async function renderVisiblePage(record, shell) {
     if (generation !== record.generation || renderRevision !== record.renderRevision) return;
     outputCanvas.dataset.state = "rendered";
     canvas.replaceWith(outputCanvas);
+    const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
+    const complexity = pageComplexity(record, pageNumber);
+    emitMetric(record, {
+      type: "page-rendered",
+      page: pageNumber,
+      complexity,
+      durationMs,
+      pixelRatio: Math.round(pixelRatio * 100) / 100,
+      canvasPixels: outputCanvas.width * outputCanvas.height,
+    });
+    if (!record.firstPagePainted) {
+      record.firstPagePainted = true;
+      if (record.messageElement) record.messageElement.textContent = "";
+    }
+    if (
+      record.options.adaptiveQuality
+      && durationMs >= SLOW_RENDER_MS
+      && !record.slowComplexities.has(complexity)
+    ) {
+      record.slowComplexities.add(complexity);
+      if (!record.slowDocument) {
+        record.slowDocument = true;
+        requestAnimationFrame(() => {
+          if (!record.disposed) observePages(record);
+        });
+      }
+    }
     // Pages far outside the viewport are released to keep mobile memory bounded.
     if (shell.dataset.visible !== "true") clearCanvas(outputCanvas);
   } catch (error) {
@@ -96,6 +161,41 @@ async function renderVisiblePage(record, shell) {
       console.error(error);
     }
   }
+}
+
+function processRenderQueue(record) {
+  if (record.disposed) return;
+  record.renderQueue.sort((left, right) => {
+    const distance = (shell) => {
+      const bounds = shell.getBoundingClientRect();
+      if (bounds.bottom >= 0 && bounds.top <= window.innerHeight) return 0;
+      return Math.min(Math.abs(bounds.top), Math.abs(bounds.bottom - window.innerHeight));
+    };
+    return distance(left) - distance(right);
+  });
+  while (record.activeRenders < record.options.maxConcurrent && record.renderQueue.length) {
+    const shell = record.renderQueue.shift();
+    shell.dataset.queued = "false";
+    if (shell.dataset.visible !== "true") continue;
+    const canvas = shell.querySelector("canvas");
+    if (!canvas || !["idle", "stale"].includes(canvas.dataset.state)) continue;
+    record.activeRenders += 1;
+    renderVisiblePage(record, shell).finally(() => {
+      record.activeRenders -= 1;
+      processRenderQueue(record);
+    });
+  }
+}
+
+function requestPageRender(record, shell) {
+  if (record.options.maxConcurrent === Infinity) {
+    renderVisiblePage(record, shell);
+    return;
+  }
+  if (shell.dataset.queued === "true") return;
+  shell.dataset.queued = "true";
+  record.renderQueue.push(shell);
+  processRenderQueue(record);
 }
 
 async function installLinkAnnotations(record, page, shell, viewport) {
@@ -144,7 +244,7 @@ async function installLinkAnnotations(record, page, shell, viewport) {
 
 function renderVisiblePages(record) {
   record.pagesElement.querySelectorAll('.pdf-page-shell[data-visible="true"]').forEach((shell) => {
-    renderVisiblePage(record, shell);
+    requestPageRender(record, shell);
   });
 }
 
@@ -399,6 +499,12 @@ function installPinchZoom(record) {
 }
 
 function observePages(record) {
+  record.observer?.disconnect();
+  record.pagesElement.querySelectorAll(".pdf-page-shell").forEach((shell) => {
+    shell.dataset.visible = "false";
+    shell.dataset.queued = "false";
+  });
+  record.renderQueue = [];
   record.observer = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
@@ -406,13 +512,13 @@ function observePages(record) {
         const canvas = shell.querySelector("canvas");
         shell.dataset.visible = String(entry.isIntersecting);
         if (entry.isIntersecting) {
-          renderVisiblePage(record, shell);
+          requestPageRender(record, shell);
         } else if (canvas.dataset.state === "rendered") {
           clearCanvas(canvas);
         }
       });
     },
-    { rootMargin: "150% 0px" }
+    { rootMargin: record.slowDocument ? "0px" : record.options.rootMargin }
   );
   record.pagesElement.querySelectorAll(".pdf-page-shell").forEach((shell) => {
     record.observer.observe(shell);
@@ -420,6 +526,7 @@ function observePages(record) {
 }
 
 function dispose(record) {
+  record.disposed = true;
   record.generation += 1;
   record.observer?.disconnect();
   record.removePinchZoom?.();
@@ -433,7 +540,14 @@ function dispose(record) {
   }
 }
 
-export async function showPdf(url, pagesElement, messageElement, loadingText = "Loading…", onLink = null) {
+export async function showPdf(
+  url,
+  pagesElement,
+  messageElement,
+  loadingText = "Loading…",
+  onLink = null,
+  viewerOptions = {},
+) {
   const absoluteUrl = new URL(url, window.location.href).href;
   const existing = views.get(pagesElement);
   if (existing?.url === absoluteUrl) {
@@ -459,6 +573,16 @@ export async function showPdf(url, pagesElement, messageElement, loadingText = "
     tapCandidate: null,
     lastTap: null,
     onLink,
+    onMetric: viewerOptions.onMetric,
+    complexity: Array.isArray(viewerOptions.complexity) ? viewerOptions.complexity : [],
+    options: { ...DEFAULT_RENDER_OPTIONS, ...viewerOptions.profile },
+    activeRenders: 0,
+    renderQueue: [],
+    slowComplexities: new Set(),
+    slowDocument: false,
+    firstPagePainted: false,
+    messageElement,
+    disposed: false,
   };
   views.set(pagesElement, record);
   pagesElement.replaceChildren();
@@ -467,12 +591,18 @@ export async function showPdf(url, pagesElement, messageElement, loadingText = "
   if (messageElement) messageElement.textContent = loadingText;
 
   try {
+    const documentStartedAt = performance.now();
     const pdfDocument = await pdfjsLib.getDocument({ url: absoluteUrl }).promise;
     if (views.get(pagesElement) !== record) {
       await pdfDocument.destroy();
       return;
     }
     record.document = pdfDocument;
+    emitMetric(record, {
+      type: "document-ready",
+      durationMs: Math.round((performance.now() - documentStartedAt) * 10) / 10,
+      pages: pdfDocument.numPages,
+    });
     const firstPage = await pdfDocument.getPage(1);
     const firstViewport = firstPage.getViewport({ scale: 1 });
 
@@ -490,7 +620,7 @@ export async function showPdf(url, pagesElement, messageElement, loadingText = "
       pagesElement.append(shell);
     }
     observePages(record);
-    if (messageElement) messageElement.textContent = "";
+    if (!pdfDocument.numPages && messageElement) messageElement.textContent = "";
   } catch (error) {
     if (views.get(pagesElement) !== record) return;
     console.error(error);

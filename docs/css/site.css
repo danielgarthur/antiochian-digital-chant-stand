@@ -391,6 +391,56 @@ body:not(.notes-mode) .music-row { margin-bottom: 0; }
 
 .setting.selected { border-color: var(--green); background: var(--green); color: white; }
 
+.performance-settings {
+  display: grid;
+  gap: .8rem;
+  padding: .9rem;
+}
+
+.performance-settings label {
+  display: grid;
+  gap: .3rem;
+  font-weight: 650;
+}
+
+.performance-settings select {
+  width: 100%;
+  min-height: 2.7rem;
+  padding: .35rem .5rem;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+  background: white;
+  color: var(--ink);
+}
+
+.performance-description {
+  margin: 0;
+  color: #59635c;
+  font-size: .88rem;
+}
+
+.performance-settings fieldset {
+  display: grid;
+  gap: .7rem;
+  margin: 0;
+  padding: .7rem;
+  border: 1px solid var(--line);
+  border-radius: .45rem;
+}
+
+.performance-settings fieldset:disabled { opacity: .48; }
+
+.performance-metrics {
+  display: block;
+  min-height: 3.5rem;
+  padding: .65rem;
+  border-radius: .4rem;
+  background: #fff;
+  color: #4e5851;
+  font: .78rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
 .viewer { min-height: 60vh; padding: .7rem; }
 
 body:not(.notes-mode) .viewer { padding-top: .35rem; }

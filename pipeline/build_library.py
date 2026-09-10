@@ -16,6 +16,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from urllib.parse import unquote, urlparse
 
 import requests
+import pymupdf
 
 from extract_music_links import extract_entries, group_entries
 from frontend_versions import update_frontend_versions
@@ -45,6 +46,9 @@ PDFJS_FILES = {
     "pdf.worker.min.mjs": f"https://cdn.jsdelivr.net/npm/pdfjs-dist@{PDFJS_VERSION}/build/pdf.worker.min.mjs",
 }
 PDFJS_VERSION_FILE = ".version"
+
+PDF_COMPLEXITY_MEDIUM = 1
+PDF_COMPLEXITY_HEAVY = 2
 
 
 def parse_date(value: str) -> date:
@@ -285,6 +289,49 @@ def publish_music_pdf(source: Path) -> str:
     return f"pdfs/{source.name}"
 
 
+def pdf_page_complexity(page: pymupdf.Page) -> int:
+    """Classify image decoding work without doing any work in the browser."""
+    images = page.get_image_info()
+    image_count = len(images)
+    image_pixels = [
+        image.get("width", 0) * image.get("height", 0) for image in images
+    ]
+    total_pixels = sum(image_pixels)
+    largest_image = max(image_pixels, default=0)
+    if image_count >= 40 or total_pixels >= 1_250_000 or largest_image >= 1_000_000:
+        return PDF_COMPLEXITY_HEAVY
+    if image_count >= 10 or total_pixels >= 400_000 or largest_image >= 400_000:
+        return PDF_COMPLEXITY_MEDIUM
+    return 0
+
+
+def pdf_complexity(path: Path) -> list[int]:
+    """Return one compact image-complexity tier for each PDF page."""
+    with pymupdf.open(path) as document:
+        return [pdf_page_complexity(page) for page in document]
+
+
+def build_pdf_complexity(services: list[dict]) -> dict[str, list[int]]:
+    """Build a de-duplicated URL-to-page-tiers map for published PDFs."""
+    urls = {service["url"] for service in services}
+    urls.update(
+        link["url"]
+        for service in services
+        for piece in service["music"]
+        for link in piece["links"]
+    )
+    result = {}
+    for url in sorted(urls):
+        path = DOCS_DIR / url
+        if not path.is_file():
+            continue
+        try:
+            result[url] = pdf_complexity(path)
+        except (OSError, RuntimeError, ValueError, pymupdf.FileDataError) as error:
+            print(f"Could not profile {url}: {error}", file=sys.stderr)
+    return result
+
+
 def download_music(
     session: requests.Session, source_url: str, cache: dict, refresh: bool
 ) -> str | None:
@@ -467,7 +514,10 @@ def build(args: argparse.Namespace) -> None:
     )
     for service in services:
         del service["_order"]
-    payload = {"services": services}
+    payload = {
+        "services": services,
+        "pdfComplexity": build_pdf_complexity(services),
+    }
     (DATA_DIR / "music.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

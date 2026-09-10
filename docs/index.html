@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#26372f">
     <title>Antiochian Chant Stand</title>
-    <link rel="stylesheet" href="./css/site.css?v=374c5ebd2dae">
+    <link rel="stylesheet" href="./css/site.css?v=9c94a5d30cb6">
   </head>
   <body class="notes-mode">
     <header class="controls" aria-label="Music navigation">
@@ -69,12 +69,63 @@
       <div id="settings" class="setting-list"></div>
     </dialog>
 
+    <dialog id="performanceDialog" class="settings-dialog performance-dialog" aria-labelledby="performanceTitle">
+      <div class="dialog-heading">
+        <strong id="performanceTitle">PDF performance</strong>
+        <button id="closePerformance" class="dialog-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="performance-settings">
+        <label>
+          Profile
+          <select id="performanceProfile">
+            <option value="current">Current compatibility</option>
+            <option value="auto">Auto per page</option>
+            <option value="sharp">Sharp, controlled loading</option>
+            <option value="fast">Fast</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <p id="performanceDescription" class="performance-description"></p>
+        <fieldset id="customPerformance">
+          <legend>Custom settings</legend>
+          <label>
+            Resolution cap
+            <select id="pixelRatioCap">
+              <option value="1">1×</option>
+              <option value="1.25">1.25×</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+            </select>
+          </label>
+          <label>
+            Simultaneous page renders
+            <select id="renderConcurrency">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="unlimited">Current / unlimited</option>
+            </select>
+          </label>
+          <label>
+            Page lookahead
+            <select id="renderLookahead">
+              <option value="0">Visible page only</option>
+              <option value="50">Half a screen</option>
+              <option value="100">One screen</option>
+              <option value="150">Current / 1.5 screens</option>
+            </select>
+          </label>
+        </fieldset>
+        <output id="performanceMetrics" class="performance-metrics">No page timing recorded yet.</output>
+        <button id="resetPerformance" class="setting" type="button">Restore current behavior</button>
+      </div>
+    </dialog>
+
     <main id="viewer" class="viewer" aria-live="polite">
       <p id="message" class="message">Loading notes…</p>
       <div id="musicPages" class="pages" hidden></div>
       <div id="notesPages" class="pages"></div>
     </main>
 
-    <script type="module" src="./js/app.js?v=8dab9c9aaaca"></script>
+    <script type="module" src="./js/app.js?v=0be2b66a398a"></script>
   </body>
 </html>
