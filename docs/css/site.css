@@ -8,7 +8,7 @@
   --paper: #f6f3ea;
   --line: #c9cec9;
   --nav-button-width: 3rem;
-  --view-toggle-width: 3rem;
+  --view-toggle-width: 3.5rem;
 }
 
 * { box-sizing: border-box; }
@@ -62,7 +62,7 @@ button:disabled { cursor: default; opacity: .28; }
   position: relative;
   display: flex;
   margin-inline: calc(var(--view-toggle-width) + .35rem);
-  min-height: 2.35rem;
+  min-height: 3rem;
   align-items: center;
   justify-content: center;
   gap: .65rem;
@@ -117,7 +117,7 @@ button:disabled { cursor: default; opacity: .28; }
   top: 0;
   right: 0;
   width: var(--view-toggle-width);
-  min-height: 2.35rem;
+  min-height: 3rem;
   display: grid;
   place-items: center;
   padding: .25rem;
@@ -157,6 +157,10 @@ button:disabled { cursor: default; opacity: .28; }
   --music-control-height: 2.7rem;
   align-items: start;
 }
+
+body:not(.notes-mode) .controls { padding-bottom: .2rem; }
+
+body:not(.notes-mode) .music-row { margin-bottom: 0; }
 
 .date-row {
   margin-bottom: .2rem;
@@ -389,6 +393,8 @@ button:disabled { cursor: default; opacity: .28; }
 
 .viewer { min-height: 60vh; padding: .7rem; }
 
+body:not(.notes-mode) .viewer { padding-top: .35rem; }
+
 .pages {
   display: grid;
   width: 100%;
@@ -471,7 +477,7 @@ button:disabled { cursor: default; opacity: .28; }
 }
 
 @media (max-width: 600px) {
-  .schedule summary { min-height: 3.15rem; }
+  .schedule summary, .view-toggle { min-height: 3.15rem; }
 
   .schedule-label {
     display: grid;

@@ -158,6 +158,40 @@ test("prefers Orthros on Sunday when the URL has no selection", async ({ page })
   await expect(page.locator("#notesPages")).toHaveAttribute("data-pdf-url", /services\/orthros\.pdf$/);
 });
 
+test("keeps the view toggle thumb-sized on a small phone", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openApp(page, `?date=${localDay()}&service=ORTHROS&view=notes`);
+
+  const layout = await page.evaluate(() => {
+    const toggle = document.querySelector("#viewToggle").getBoundingClientRect();
+    const summary = document.querySelector("#schedule summary").getBoundingClientRect();
+    return {
+      toggleWidth: toggle.width,
+      toggleHeight: toggle.height,
+      controlsDoNotOverlap: summary.right <= toggle.left,
+      pageFitsViewport: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    };
+  });
+
+  expect(layout.toggleWidth).toBeGreaterThanOrEqual(56);
+  expect(layout.toggleHeight).toBeGreaterThanOrEqual(48);
+  expect(layout.controlsDoNotOverlap).toBe(true);
+  expect(layout.pageFitsViewport).toBe(true);
+});
+
+test("keeps the music PDF close to its position indicator", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openApp(page, `?date=${localDay()}&service=ORTHROS&view=music`);
+
+  const gap = await page.evaluate(() => {
+    const position = document.querySelector("#musicPosition").getBoundingClientRect();
+    const firstPage = document.querySelector("#musicPages .pdf-page-shell").getBoundingClientRect();
+    return firstPage.top - position.bottom;
+  });
+
+  expect(gap).toBeLessThanOrEqual(18);
+});
+
 test("prefers Great Vespers on Saturday when the URL has no selection", async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-09-05T17:00:00Z"));
   await openApp(page, "", library("2026-09-05"));
