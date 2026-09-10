@@ -4,8 +4,10 @@ const elements = Object.fromEntries(
   [
     "schedule", "scheduleDay", "scheduleService", "previousDay", "dateSelect", "nextDay", "dateLabel", "previousService",
     "nextService", "serviceTabs", "previousMusic", "nextMusic",
-    "musicSelect", "musicPosition", "settingButton", "settingsDialog",
-    "closeSettings", "settings", "viewToggle", "notesIcon", "musicIcon", "musicPages", "notesPages", "message",
+    "musicSelect", "musicPosition", "settingButton", "pdfCopyButton", "settingsDialog",
+    "closeSettings", "settings", "pdfFallbackDialog", "pdfFallbackTitle", "pdfFallbackDescription",
+    "closePdfFallback", "keepPdfCopy", "switchPdfCopy", "viewToggle", "notesIcon", "musicIcon",
+    "musicPages", "notesPages", "message",
   ].map((id) => [id, document.getElementById(id)])
 );
 
@@ -21,7 +23,9 @@ const POSITION_STORAGE_KEY = "antiochian-chant-stand:positions:v1";
 const POSITION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const MAX_SAVED_POSITIONS = 100;
 const POSITION_SAVE_DELAY_MS = 1000;
+const ORIGINAL_PDF_STORAGE_KEY = "antiochian-chant-stand:original-pdfs:v1";
 const savedPositions = loadSavedPositions();
+const originalPdfOverrides = loadOriginalPdfOverrides();
 let viewportWidth = window.innerWidth;
 let scrollFrame = null;
 let resizeTimer = null;
@@ -32,6 +36,30 @@ let positionsDirty = false;
 
 // Earlier entries win. Settings not listed here keep their source-document order.
 const PREFERRED_SETTINGS = ["STAM", "CROW", "KARAM", "EL MASSIH", "CHANT"];
+
+function loadOriginalPdfOverrides() {
+  try {
+    const urls = JSON.parse(localStorage.getItem(ORIGINAL_PDF_STORAGE_KEY));
+    return new Set(Array.isArray(urls) ? urls.filter((url) => typeof url === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveOriginalPdfOverrides() {
+  try {
+    localStorage.setItem(ORIGINAL_PDF_STORAGE_KEY, JSON.stringify([...originalPdfOverrides]));
+  } catch {
+    // The fallback still works for this page load when storage is unavailable.
+  }
+}
+
+function musicPdfUrl(link) {
+  if (!link) return null;
+  return originalPdfOverrides.has(link.url) && link.fallbackUrl
+    ? link.fallbackUrl
+    : link.url;
+}
 
 function validSavedPosition(position, now) {
   if (
@@ -455,7 +483,7 @@ function switchView() {
 
   setViewMode(nextMode);
 
-  const url = viewMode === "notes" ? `./${service.url}` : `./${piece.links[settingIndex].url}`;
+  const url = viewMode === "notes" ? `./${service.url}` : `./${musicPdfUrl(piece.links[settingIndex])}`;
   if (viewMode === "notes") activeNotesUrl = url;
   else activeMusicUrl = url;
   loadView(url, viewMode, viewMode === "notes" ? "Loading notes…" : "Loading music…");
@@ -546,6 +574,7 @@ function render(historyMode = "none") {
 
   if (!piece) {
     elements.settingButton.hidden = true;
+    elements.pdfCopyButton.hidden = true;
     if (elements.settingsDialog.open) elements.settingsDialog.close();
     clearPdf(
       elements.musicPages,
@@ -562,6 +591,18 @@ function render(historyMode = "none") {
     "aria-label",
     `Setting: ${piece.links[settingIndex].setting}. Choose another setting`
   );
+  const selectedLink = piece.links[settingIndex];
+  const usingOriginal = Boolean(selectedLink.fallbackUrl && originalPdfOverrides.has(selectedLink.url));
+  elements.pdfCopyButton.hidden = !selectedLink.fallbackUrl;
+  elements.pdfCopyButton.classList.toggle("original-active", usingOriginal);
+  elements.pdfCopyButton.textContent = usingOriginal ? "Original PDF" : "Having trouble?";
+  elements.pdfCopyButton.setAttribute("aria-pressed", String(usingOriginal));
+  elements.pdfCopyButton.setAttribute(
+    "aria-label",
+    usingOriginal
+      ? "Original PDF is active. Open PDF options"
+      : "Having trouble with this PDF? Open PDF options"
+  );
 
   piece.links.forEach((link, index) => {
     const button = document.createElement("button");
@@ -577,7 +618,7 @@ function render(historyMode = "none") {
     });
     elements.settings.append(button);
   });
-  const musicUrl = `./${piece.links[settingIndex].url}`;
+  const musicUrl = `./${musicPdfUrl(selectedLink)}`;
   activeMusicUrl = musicUrl;
   loadView(musicUrl, "music", "Loading music…");
 
@@ -643,6 +684,39 @@ elements.musicSelect.addEventListener("change", (event) => {
   render("push");
 });
 elements.settingButton.addEventListener("click", () => elements.settingsDialog.showModal());
+elements.pdfCopyButton.addEventListener("click", () => {
+  const link = services[serviceIndex]?.music[musicIndex]?.links[settingIndex];
+  if (!link?.fallbackUrl) return;
+  const usingOriginal = originalPdfOverrides.has(link.url);
+  elements.pdfFallbackTitle.textContent = usingOriginal
+    ? "You’re viewing the original PDF"
+    : "PDF not displaying correctly?";
+  elements.pdfFallbackDescription.textContent = usingOriginal
+    ? "This is the unchanged original file. It may load more slowly on this device."
+    : "This PDF was adjusted to load faster. If anything looks missing or incorrect, you can open the unchanged original.";
+  elements.keepPdfCopy.textContent = usingOriginal ? "Keep original" : "Keep faster version";
+  elements.switchPdfCopy.textContent = usingOriginal ? "Switch to faster version" : "Open original";
+  elements.pdfFallbackDialog.showModal();
+});
+elements.closePdfFallback.addEventListener("click", () => elements.pdfFallbackDialog.close());
+elements.keepPdfCopy.addEventListener("click", () => elements.pdfFallbackDialog.close());
+elements.pdfFallbackDialog.addEventListener("click", (event) => {
+  if (event.target === elements.pdfFallbackDialog) elements.pdfFallbackDialog.close();
+});
+elements.switchPdfCopy.addEventListener("click", () => {
+  const link = services[serviceIndex]?.music[musicIndex]?.links[settingIndex];
+  if (!link?.fallbackUrl) return;
+  const previousUrl = activeMusicUrl;
+  rememberPosition("music");
+  if (originalPdfOverrides.has(link.url)) originalPdfOverrides.delete(link.url);
+  else originalPdfOverrides.add(link.url);
+  saveOriginalPdfOverrides();
+  const nextUrl = `./${musicPdfUrl(link)}`;
+  const position = savedPositions.get(previousUrl);
+  if (position) savePosition(nextUrl, position);
+  elements.pdfFallbackDialog.close();
+  render("none");
+});
 elements.closeSettings.addEventListener("click", () => elements.settingsDialog.close());
 elements.settingsDialog.addEventListener("click", (event) => {
   if (event.target === elements.settingsDialog) elements.settingsDialog.close();

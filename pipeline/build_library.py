@@ -16,9 +16,11 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from urllib.parse import unquote, urlparse
 
 import requests
+import pymupdf
 
 from extract_music_links import extract_entries, group_entries
 from frontend_versions import update_frontend_versions
+from optimize_pdfs import optimize_scanline_pdf, optimized_filename, pathological_pages
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUT_DIR = ROOT / "pipeline" / "input"
@@ -183,7 +185,11 @@ def atomic_write(path: Path, content: bytes) -> None:
 
 
 def download_service_pdfs(
-    session: requests.Session, start: date, end: date, refresh: bool
+    session: requests.Session,
+    start: date,
+    end: date,
+    refresh: bool,
+    report: dict | None = None,
 ) -> list[dict]:
     """Discover service PDFs through the API and cache every advertised PDF."""
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -230,6 +236,15 @@ def download_service_pdfs(
                         )
                     else:
                         print(f"Skipping service PDF {service['url']}: {error}", file=sys.stderr)
+                        if report is not None:
+                            report["missingFiles"].append(
+                                {
+                                    "kind": "service",
+                                    "label": service["label"],
+                                    "url": service["url"],
+                                    "reason": str(error),
+                                }
+                            )
                         continue
             discovered.append(
                 {
@@ -285,8 +300,65 @@ def publish_music_pdf(source: Path) -> str:
     return f"pdfs/{source.name}"
 
 
+def pdf_entries(services: list[dict]):
+    for service in services:
+        yield service
+        for piece in service["music"]:
+            yield from piece["links"]
+
+
+def music_pdf_entries(services: list[dict]):
+    for service in services:
+        for piece in service["music"]:
+            yield from piece["links"]
+
+
+def optimize_published_pdfs(services: list[dict], report: dict) -> None:
+    """Optimize music PDFs only, retaining originals as fallbacks."""
+    entries_by_url: dict[str, list[dict]] = {}
+    for entry in music_pdf_entries(services):
+        entries_by_url.setdefault(entry["url"], []).append(entry)
+
+    for original_url, entries in sorted(entries_by_url.items()):
+        source = DOCS_DIR / original_url
+        if not source.is_file():
+            continue
+        try:
+            detections = pathological_pages(source)
+            if not detections:
+                continue
+            destination = source.with_name(optimized_filename(source))
+            details = optimize_scanline_pdf(source, destination, detections)
+        except (OSError, RuntimeError, ValueError, pymupdf.FileDataError) as error:
+            print(f"Could not optimize {original_url}: {error}", file=sys.stderr)
+            report["optimizationErrors"].append(
+                {"original": original_url, "reason": str(error)}
+            )
+            continue
+
+        optimized_url = destination.relative_to(DOCS_DIR).as_posix()
+        for entry in entries:
+            entry["fallbackUrl"] = original_url
+            entry["url"] = optimized_url
+        report_entry = {
+            "original": original_url,
+            "optimized": optimized_url,
+            "pages": details,
+        }
+        report["optimizedFiles"].append(report_entry)
+        page_summary = ", ".join(
+            f"page {page['page']}: {page['strips']} strips -> 1 image"
+            for page in details
+        )
+        print(f"Optimized PDF: {original_url} -> {optimized_url} ({page_summary})")
+
+
 def download_music(
-    session: requests.Session, source_url: str, cache: dict, refresh: bool
+    session: requests.Session,
+    source_url: str,
+    cache: dict,
+    refresh: bool,
+    report: dict | None = None,
 ) -> str | None:
     record = cache.setdefault("music", {}).get(source_url, {})
     cached_path = cached_music_path(record)
@@ -317,6 +389,15 @@ def download_music(
         print(f"  music download failed: {source_url}: {exc}", file=sys.stderr)
         if cached_path:
             return publish_music_pdf(cached_path)
+        if report is not None:
+            report["missingFiles"].append(
+                {
+                    "kind": "music",
+                    "label": unquote(urlparse(source_url).path).rsplit("/", 1)[-1],
+                    "url": source_url,
+                    "reason": str(exc),
+                }
+            )
         return None
 
     digest = hashlib.sha256(content).hexdigest()
@@ -334,13 +415,12 @@ def download_music(
 
 
 def prune_published_pdfs(services: list[dict]) -> None:
-    referenced = {service["url"] for service in services}
-    referenced.update(
-        link["url"]
-        for service in services
-        for piece in service["music"]
-        for link in piece["links"]
-    )
+    referenced = {
+        url
+        for entry in pdf_entries(services)
+        for key in ("url", "fallbackUrl")
+        if (url := entry.get(key))
+    }
     for directory in (PDF_DIR, SERVICE_PDF_DIR):
         for path in directory.glob("*.pdf"):
             if path.relative_to(DOCS_DIR).as_posix() not in referenced:
@@ -384,6 +464,7 @@ def build(args: argparse.Namespace) -> None:
     MUSIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     session = requests.Session()
     session.headers["User-Agent"] = "antiochian-chant-library/1.0"
+    report = {"optimizedFiles": [], "missingFiles": [], "optimizationErrors": []}
 
     build_end = args.end or args.start
     discovered_services = []
@@ -391,7 +472,7 @@ def build(args: argparse.Namespace) -> None:
         if build_end < args.start:
             raise SystemExit("--end must not be before --start")
         discovered_services = download_service_pdfs(
-            session, args.start, build_end, args.refresh_services
+            session, args.start, build_end, args.refresh_services, report
         )
 
     cache = load_cache()
@@ -439,7 +520,7 @@ def build(args: argparse.Namespace) -> None:
                 source_url = link["sourceUrl"]
                 if source_url not in downloaded_this_run:
                     downloaded_this_run[source_url] = download_music(
-                        session, source_url, cache, args.refresh_music
+                        session, source_url, cache, args.refresh_music, report
                     )
                 local_url = downloaded_this_run[source_url]
                 if local_url:
@@ -467,11 +548,15 @@ def build(args: argparse.Namespace) -> None:
     )
     for service in services:
         del service["_order"]
+    optimize_published_pdfs(services, report)
     payload = {"services": services}
     (DATA_DIR / "music.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     prune_published_pdfs(services)
+    (DATA_DIR / "build-report.json").write_text(
+        json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     save_cache(cache)
     ensure_pdfjs(session)
     update_frontend_versions()

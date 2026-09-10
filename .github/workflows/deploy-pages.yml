@@ -84,6 +84,10 @@ jobs:
           --start "${{ steps.dates.outputs.start }}"
           --end "${{ steps.dates.outputs.end }}"
 
+      - name: Summarize PDF downloads and optimizations
+        if: always()
+        run: python pipeline/write_build_summary.py
+
       - name: Validate generated site
         run: python pipeline/validate_site.py
 

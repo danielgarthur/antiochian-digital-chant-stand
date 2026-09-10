@@ -30,9 +30,13 @@ def main() -> None:
     music_count = 0
     for service in services:
         require_site_file(service.get("url", ""), "service PDF")
+        if service.get("fallbackUrl"):
+            require_site_file(service["fallbackUrl"], "fallback service PDF")
         for piece in service.get("music", []):
             for link in piece.get("links", []):
                 require_site_file(link.get("url", ""), "music PDF")
+                if link.get("fallbackUrl"):
+                    require_site_file(link["fallbackUrl"], "fallback music PDF")
                 music_count += 1
 
     if music_count == 0:

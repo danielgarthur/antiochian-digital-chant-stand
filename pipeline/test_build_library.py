@@ -14,6 +14,33 @@ import requests
 
 
 class BuildLibraryTests(unittest.TestCase):
+    def test_optimizer_scans_music_pdfs_but_never_service_notes(self):
+        with TemporaryDirectory() as directory:
+            docs_dir = Path(directory)
+            service_path = docs_dir / "services" / "notes.pdf"
+            music_path = docs_dir / "pdfs" / "music.pdf"
+            service_path.parent.mkdir()
+            music_path.parent.mkdir()
+            service_path.write_bytes(b"%PDF notes")
+            music_path.write_bytes(b"%PDF music")
+            services = [{
+                "url": "services/notes.pdf",
+                "music": [{"links": [{"url": "pdfs/music.pdf"}]}],
+            }]
+            report = {
+                "optimizedFiles": [],
+                "missingFiles": [],
+                "optimizationErrors": [],
+            }
+
+            with (
+                patch.object(build_library, "DOCS_DIR", docs_dir),
+                patch.object(build_library, "pathological_pages", return_value=[]) as detect,
+            ):
+                build_library.optimize_published_pdfs(services, report)
+
+            detect.assert_called_once_with(music_path)
+
     def test_manual_build_ignores_cached_api_downloads(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -339,6 +366,7 @@ class BuildLibraryTests(unittest.TestCase):
             service_dir.mkdir()
             for path in (
                 pdf_dir / "keep.pdf",
+                pdf_dir / "original.pdf",
                 pdf_dir / "obsolete.pdf",
                 service_dir / "keep.pdf",
                 service_dir / "obsolete.pdf",
@@ -347,7 +375,10 @@ class BuildLibraryTests(unittest.TestCase):
             services = [
                 {
                     "url": "services/keep.pdf",
-                    "music": [{"links": [{"url": "pdfs/keep.pdf"}]}],
+                    "music": [{"links": [{
+                        "url": "pdfs/keep.pdf",
+                        "fallbackUrl": "pdfs/original.pdf",
+                    }]}],
                 }
             ]
 
@@ -359,6 +390,7 @@ class BuildLibraryTests(unittest.TestCase):
                 build_library.prune_published_pdfs(services)
 
             self.assertTrue((pdf_dir / "keep.pdf").exists())
+            self.assertTrue((pdf_dir / "original.pdf").exists())
             self.assertTrue((service_dir / "keep.pdf").exists())
             self.assertFalse((pdf_dir / "obsolete.pdf").exists())
             self.assertFalse((service_dir / "obsolete.pdf").exists())

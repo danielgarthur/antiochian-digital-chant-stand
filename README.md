@@ -158,3 +158,14 @@ across reloads and discarded tabs. Positions that have not been used for 90 days
 and only the 100 most recently used documents are retained. A PDF not previously opened
 starts at the top. Pages outside the nearby screen area are released from memory so
 repeated switching remains practical on tablets.
+
+During a build, a strict music-PDF optimizer looks for a pathological encoding made
+entirely of hundreds of contiguous, one-pixel-high image strips arranged as a small
+number of adjacent columns. Service-note PDFs are never optimization candidates. It
+consolidates only that bounded artwork region into a single image.
+The source PDF remains untouched and both copies are published. Builds log every
+optimization and write optimized, missing, and failed-optimization lists to the GitHub
+Actions run summary. For optimized music, a small **Having trouble?** control appears
+beside the music position and setting. It explains the tradeoff before switching files,
+preserves the reading position, and becomes an **Original PDF** status control when the
+fallback is active.

@@ -107,7 +107,7 @@ function library(today = localDay()) {
             title: "Alpha Hymn",
             links: [
               { setting: "CHANT", url: "pdfs/alpha-chant.pdf", sourceUrl: "https://music.test/alpha-chant.pdf", sourcePage: 1, sourceTop: 100 },
-              { setting: "STAM", url: "pdfs/alpha-stam.pdf", sourceUrl: "https://music.test/alpha-stam.pdf", sourcePage: 1, sourceTop: 120 },
+              { setting: "STAM", url: "pdfs/alpha-stam-optimized-v1.pdf", fallbackUrl: "pdfs/alpha-stam.pdf", sourceUrl: "https://music.test/alpha-stam.pdf", sourcePage: 1, sourceTop: 120 },
               { setting: "CROW", url: "pdfs/alpha-crow.pdf", sourceUrl: "https://music.test/alpha-crow.pdf", sourcePage: 1, sourceTop: 140 },
             ],
           },
@@ -282,6 +282,37 @@ test("chooses a setting and keeps it in the URL", async ({ page }) => {
   await expect(page.locator("#settingButton")).toHaveText("CROW ▾");
   await expect(page).toHaveURL(/setting=2/);
   await expect(page.locator("#musicPages")).toHaveAttribute("data-pdf-url", /pdfs\/alpha-crow\.pdf$/);
+});
+
+test("switches between optimized and original PDF copies", async ({ page }) => {
+  await openApp(page, `?date=${localDay()}&service=ORTHROS&view=music`);
+
+  await expect(page.locator("#musicPages")).toHaveAttribute("data-pdf-url", /alpha-stam-optimized-v1\.pdf$/);
+  await expect(page.locator("#pdfCopyButton")).toHaveText("Having trouble?");
+
+  await page.evaluate(() => window.scrollTo(0, 950));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(800);
+  await page.locator("#pdfCopyButton").click();
+  await expect(page.locator("#pdfFallbackDialog")).toBeVisible();
+  await expect(page.locator("#pdfFallbackDescription")).toContainText("adjusted to load faster");
+  await expect(page.locator("#keepPdfCopy")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator("#keepPdfCopy")).toHaveCSS("color", "rgb(23, 32, 25)");
+  await expect(page.locator("#switchPdfCopy")).toHaveCSS("background-color", "rgb(38, 55, 47)");
+  await expect(page.locator("#switchPdfCopy")).toHaveCSS("color", "rgb(255, 255, 255)");
+  await page.locator("#switchPdfCopy").click();
+  await expect(page.locator("#musicPages")).toHaveAttribute("data-pdf-url", /pdfs\/alpha-stam\.pdf$/);
+  await expect(page.locator("#pdfCopyButton")).toHaveText("Original PDF");
+  await expect(page.locator("#pdfCopyButton")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(700);
+
+  await page.reload();
+  await expect(page.locator("#musicPages")).toHaveAttribute("data-pdf-url", /pdfs\/alpha-stam\.pdf$/);
+  await expect(page.locator("#pdfCopyButton")).toHaveText("Original PDF");
+
+  await page.locator("#pdfCopyButton").click();
+  await expect(page.locator("#pdfFallbackDescription")).toContainText("may load more slowly");
+  await page.locator("#switchPdfCopy").click();
+  await expect(page.locator("#musicPages")).toHaveAttribute("data-pdf-url", /alpha-stam-optimized-v1\.pdf$/);
 });
 
 test("opens an embedded notes link in the matching music", async ({ page }) => {

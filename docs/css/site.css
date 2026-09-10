@@ -328,6 +328,7 @@ body:not(.notes-mode) .music-row { margin-bottom: 0; }
 .music-meta {
   display: flex;
   min-height: 1.35rem;
+  margin-top: .2rem;
   align-items: center;
   justify-content: center;
   gap: .35rem;
@@ -341,6 +342,55 @@ body:not(.notes-mode) .music-row { margin-bottom: 0; }
   color: var(--green);
   font-size: .7rem;
   font-weight: 750;
+}
+
+.pdf-copy-trigger {
+  min-height: 1.7rem;
+  padding: 0 .45rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #59635c;
+  font-size: .68rem;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: .15em;
+  white-space: nowrap;
+}
+
+.pdf-copy-trigger.original-active {
+  border: 1px solid var(--gold);
+  background: #fff8e8;
+  color: #76591f;
+  text-decoration: none;
+}
+
+.pdf-fallback-content { display: grid; gap: 1rem; padding: 1rem; }
+.pdf-fallback-content p { margin: 0; line-height: 1.45; }
+.pdf-fallback-actions { display: flex; justify-content: flex-end; gap: .55rem; }
+.pdf-fallback-actions .setting { text-align: center; }
+.pdf-fallback-actions .pdf-fallback-keep {
+  border-color: #aeb5af;
+  background: white;
+  color: var(--ink);
+}
+.pdf-fallback-actions .pdf-fallback-switch {
+  border-color: var(--green);
+  background: var(--green);
+  color: white;
+}
+
+@media (max-width: 600px) {
+  .pdf-fallback-dialog {
+    width: 100%;
+    max-width: none;
+    margin: auto 0 0;
+    border-radius: .85rem .85rem 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .pdf-fallback-actions { grid-template-columns: 1fr; display: grid; }
+  .pdf-fallback-actions .setting { width: 100%; }
 }
 
 .settings-dialog {

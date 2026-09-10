@@ -1,3 +1,4 @@
+.DS_Store
 __pycache__/
 *.pyc
 .venv/
@@ -8,6 +9,7 @@ pipeline/.download-cache.json
 pipeline/.music-cache/
 pipeline/input/*.pdf
 docs/data/music.json
+docs/data/build-report.json
 docs/pdfs/*.pdf
 docs/services/*.pdf
 docs/vendor/pdfjs/*.mjs
