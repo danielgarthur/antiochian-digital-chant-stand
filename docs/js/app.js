@@ -6,11 +6,13 @@ const elements = Object.fromEntries(
     "nextService", "serviceTabs", "previousMusic", "nextMusic",
     "musicSelect", "musicPosition", "settingButton", "pdfCopyButton", "settingsDialog",
     "closeSettings", "settings", "pdfFallbackDialog", "pdfFallbackTitle", "pdfFallbackDescription",
-    "closePdfFallback", "keepPdfCopy", "switchPdfCopy", "viewToggle", "notesIcon", "musicIcon",
+    "closePdfFallback", "keepPdfCopy", "switchPdfCopy", "actionsButton", "actionsDialog", "closeActions",
+    "downloadPdf", "downloadDescription", "showBilingualServices", "viewToggle", "notesIcon", "musicIcon",
     "musicPages", "notesPages", "message",
   ].map((id) => [id, document.getElementById(id)])
 );
 
+let allServices = [];
 let services = [];
 let datedDays = [];
 let serviceIndex = -1;
@@ -24,8 +26,10 @@ const POSITION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const MAX_SAVED_POSITIONS = 100;
 const POSITION_SAVE_DELAY_MS = 1000;
 const ORIGINAL_PDF_STORAGE_KEY = "antiochian-chant-stand:original-pdfs:v1";
+const SHOW_BILINGUAL_STORAGE_KEY = "antiochian-chant-stand:show-bilingual-services:v1";
 const savedPositions = loadSavedPositions();
 const originalPdfOverrides = loadOriginalPdfOverrides();
+let showBilingualServices = loadShowBilingualServices();
 let viewportWidth = window.innerWidth;
 let scrollFrame = null;
 let resizeTimer = null;
@@ -59,6 +63,26 @@ function musicPdfUrl(link) {
   return originalPdfOverrides.has(link.url) && link.fallbackUrl
     ? link.fallbackUrl
     : link.url;
+}
+
+function loadShowBilingualServices() {
+  try {
+    return localStorage.getItem(SHOW_BILINGUAL_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function saveShowBilingualServices() {
+  try {
+    localStorage.setItem(SHOW_BILINGUAL_STORAGE_KEY, String(showBilingualServices));
+  } catch {
+    // The preference still applies for this page load when storage is unavailable.
+  }
+}
+
+function isBilingualService(service) {
+  return service.type.startsWith("BILINGUAL_");
 }
 
 function validSavedPosition(position, now) {
@@ -178,6 +202,16 @@ const localDate = () => {
 
 const servicesOn = (day) => services.filter((service) => service.date === day);
 
+function updateDateOptions() {
+  datedDays = [...new Set(services.map((service) => service.date).filter(Boolean))];
+  elements.dateSelect.replaceChildren(
+    ...datedDays.map((day) => new Option(
+      day === localDate() ? `Today — ${formatDay(day)}` : formatDay(day),
+      day
+    ))
+  );
+}
+
 function preferredService(candidates, predicate) {
   return candidates.find((service) => !service.type.startsWith("BILINGUAL_") && predicate(service))
     || candidates.find(predicate);
@@ -229,6 +263,29 @@ function chooseInitialService() {
   const dated = services.filter((service) => service.date);
   const future = dated.find((service) => service.date > localDate());
   return services.indexOf(future || dated[dated.length - 1] || services[0]);
+}
+
+function applyServiceVisibility() {
+  const selectedService = services[serviceIndex];
+  const selectedDay = selectedService?.date;
+  services = showBilingualServices
+    ? [...allServices]
+    : allServices.filter((service) => !isBilingualService(service));
+  updateDateOptions();
+
+  let nextIndex = selectedService ? services.indexOf(selectedService) : -1;
+  if (nextIndex < 0 && selectedDay) {
+    const sameDay = servicesOn(selectedDay);
+    if (sameDay.length) nextIndex = services.indexOf(preferredServiceForDay(sameDay, selectedDay));
+  }
+  if (nextIndex < 0) nextIndex = chooseInitialService();
+
+  const selectionChanged = selectedService !== services[nextIndex];
+  serviceIndex = nextIndex;
+  if (selectionChanged) {
+    musicIndex = 0;
+    settingIndex = preferredSettingIndex(services[serviceIndex]?.music[0]);
+  }
 }
 
 function setService(index) {
@@ -423,6 +480,36 @@ function loadView(url, mode, loadingText) {
   });
 }
 
+function safeFilenamePart(value) {
+  return String(value || "PDF")
+    .normalize("NFKD")
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function updateDownloadAction() {
+  const service = services[serviceIndex];
+  const piece = service?.music[musicIndex];
+  const link = piece?.links[settingIndex];
+  const url = urlFor(viewMode);
+  elements.downloadPdf.hidden = !url;
+  if (!url) {
+    elements.downloadPdf.removeAttribute("href");
+    elements.downloadPdf.removeAttribute("download");
+    return;
+  }
+
+  const parts = viewMode === "notes"
+    ? [service.date, service.label]
+    : [service.date, piece?.title, link?.setting];
+  const filename = parts.filter(Boolean).map(safeFilenamePart).join("-");
+  elements.downloadPdf.href = url;
+  elements.downloadPdf.download = `${filename || "chant-stand"}.pdf`;
+  elements.downloadDescription.textContent = viewMode === "notes"
+    ? `Save ${service.label}`
+    : `Save ${piece.title}${link?.setting ? ` — ${link.setting}` : ""}`;
+}
+
 function normalizedUrl(value) {
   try {
     return new URL(value, window.location.href).href;
@@ -487,6 +574,7 @@ function switchView() {
   if (viewMode === "notes") activeNotesUrl = url;
   else activeMusicUrl = url;
   loadView(url, viewMode, viewMode === "notes" ? "Loading notes…" : "Loading music…");
+  updateDownloadAction();
   updateUrl("push");
 }
 
@@ -495,6 +583,7 @@ function render(historyMode = "none") {
   if (!service) {
     clearPdf(elements.musicPages, elements.message, "No services are available yet.");
     clearPdf(elements.notesPages, null, "");
+    updateDownloadAction();
     return;
   }
   const dayPosition = datedDays.indexOf(service.date);
@@ -581,6 +670,7 @@ function render(historyMode = "none") {
       viewMode === "music" ? elements.message : null,
       "No linked music was found in this service."
     );
+    updateDownloadAction();
     updateUrl(historyMode);
     return;
   }
@@ -622,6 +712,7 @@ function render(historyMode = "none") {
   activeMusicUrl = musicUrl;
   loadView(musicUrl, "music", "Loading music…");
 
+  updateDownloadAction();
   updateUrl(historyMode);
 }
 
@@ -684,6 +775,22 @@ elements.musicSelect.addEventListener("change", (event) => {
   render("push");
 });
 elements.settingButton.addEventListener("click", () => elements.settingsDialog.showModal());
+elements.actionsButton.addEventListener("click", () => elements.actionsDialog.showModal());
+elements.closeActions.addEventListener("click", () => elements.actionsDialog.close());
+elements.actionsDialog.addEventListener("click", (event) => {
+  if (event.target === elements.actionsDialog) elements.actionsDialog.close();
+});
+elements.downloadPdf.addEventListener("click", () => elements.actionsDialog.close());
+elements.showBilingualServices.addEventListener("change", () => {
+  rememberPosition(viewMode);
+  showBilingualServices = elements.showBilingualServices.checked;
+  saveShowBilingualServices();
+  applyServiceVisibility();
+  if (viewMode === "music" && !services[serviceIndex]?.music[musicIndex]?.links[settingIndex]) {
+    setViewMode("notes");
+  }
+  render("replace");
+});
 elements.pdfCopyButton.addEventListener("click", () => {
   const link = services[serviceIndex]?.music[musicIndex]?.links[settingIndex];
   if (!link?.fallbackUrl) return;
@@ -724,6 +831,7 @@ elements.settingsDialog.addEventListener("click", (event) => {
 elements.viewToggle.addEventListener("click", switchView);
 window.addEventListener("popstate", () => {
   rememberPosition(viewMode);
+  if (elements.actionsDialog.open) elements.actionsDialog.close();
   if (elements.settingsDialog.open) elements.settingsDialog.close();
   restoreUrlChoice();
   render("none");
@@ -732,14 +840,12 @@ try {
   const response = await fetch("./data/music.json", { cache: "no-store" });
   if (!response.ok) throw new Error(`music.json returned ${response.status}`);
   const data = await response.json();
-  services = data.services || [];
-  datedDays = [...new Set(services.map((service) => service.date).filter(Boolean))];
-  elements.dateSelect.replaceChildren(
-    ...datedDays.map((day) => new Option(
-      day === localDate() ? `Today — ${formatDay(day)}` : formatDay(day),
-      day
-    ))
-  );
+  allServices = data.services || [];
+  services = showBilingualServices
+    ? [...allServices]
+    : allServices.filter((service) => !isBilingualService(service));
+  elements.showBilingualServices.checked = showBilingualServices;
+  updateDateOptions();
   restoreUrlChoice();
   render("replace");
 } catch (error) {

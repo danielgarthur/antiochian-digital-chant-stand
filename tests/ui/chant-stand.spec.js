@@ -164,10 +164,14 @@ test("keeps the view toggle thumb-sized on a small phone", async ({ page }) => {
 
   const layout = await page.evaluate(() => {
     const toggle = document.querySelector("#viewToggle").getBoundingClientRect();
+    const actions = document.querySelector("#actionsButton").getBoundingClientRect();
     const summary = document.querySelector("#schedule summary").getBoundingClientRect();
     return {
       toggleWidth: toggle.width,
       toggleHeight: toggle.height,
+      actionsWidth: actions.width,
+      actionsHeight: actions.height,
+      actionsDoNotOverlap: actions.right <= summary.left,
       controlsDoNotOverlap: summary.right <= toggle.left,
       pageFitsViewport: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
     };
@@ -175,8 +179,61 @@ test("keeps the view toggle thumb-sized on a small phone", async ({ page }) => {
 
   expect(layout.toggleWidth).toBeGreaterThanOrEqual(56);
   expect(layout.toggleHeight).toBeGreaterThanOrEqual(48);
+  expect(layout.actionsWidth).toBeGreaterThanOrEqual(56);
+  expect(layout.actionsHeight).toBeGreaterThanOrEqual(48);
+  expect(layout.actionsDoNotOverlap).toBe(true);
   expect(layout.controlsDoNotOverlap).toBe(true);
   expect(layout.pageFitsViewport).toBe(true);
+});
+
+test("offers the current PDF in a phone-friendly actions sheet", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page, `?date=${localDay()}&service=ORTHROS&view=notes`);
+
+  await page.locator("#actionsButton").click();
+  await expect(page.locator("#actionsDialog")).toBeVisible();
+  await expect(page.locator("#downloadPdf")).toHaveAttribute("href", /services\/orthros\.pdf$/);
+  await expect(page.locator("#downloadPdf")).toHaveAttribute("download", `${localDay()}-Orthros.pdf`);
+  await expect(page.locator("#downloadDescription")).toHaveText("Save Orthros");
+
+  const layout = await page.locator("#actionsDialog").evaluate((dialog) => {
+    const bounds = dialog.getBoundingClientRect();
+    const download = dialog.querySelector("#downloadPdf").getBoundingClientRect();
+    const preference = dialog.querySelector(".preference-row").getBoundingClientRect();
+    return {
+      atBottom: Math.abs(bounds.bottom - window.innerHeight) <= 1,
+      fullWidth: Math.abs(bounds.width - window.innerWidth) <= 1,
+      downloadHeight: download.height,
+      preferenceHeight: preference.height,
+    };
+  });
+  expect(layout.atBottom).toBe(true);
+  expect(layout.fullWidth).toBe(true);
+  expect(layout.downloadHeight).toBeGreaterThanOrEqual(64);
+  expect(layout.preferenceHeight).toBeGreaterThanOrEqual(64);
+});
+
+test("hides bilingual services and remembers the preference", async ({ page }) => {
+  await openApp(page, `?date=${localDay()}&service=BILINGUAL_ORTHROS&view=notes`);
+  await expect(page.locator("#scheduleLabel")).toContainText("Bilingual Sunday Orthros");
+
+  await page.locator("#actionsButton").click();
+  await expect(page.locator("#showBilingualServices")).toBeChecked();
+  await page.locator("#showBilingualServices").uncheck();
+  await expect(page.locator("#scheduleLabel")).toHaveText("Today · Orthros");
+  await expect(page).toHaveURL(/service=ORTHROS/);
+  await page.locator("#closeActions").click();
+  await page.locator("#schedule summary").click();
+  await expect(page.getByRole("tab", { name: "Bilingual Sunday Orthros" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Bilingual Divine Liturgy" })).toHaveCount(0);
+
+  await page.reload();
+  await page.locator("#actionsButton").click();
+  await expect(page.locator("#showBilingualServices")).not.toBeChecked();
+  await page.locator("#showBilingualServices").check();
+  await page.locator("#closeActions").click();
+  await page.locator("#schedule summary").click();
+  await expect(page.getByRole("tab", { name: "Bilingual Sunday Orthros" })).toHaveCount(1);
 });
 
 test("keeps the music PDF close to its position indicator", async ({ page }) => {
@@ -304,6 +361,13 @@ test("switches between optimized and original PDF copies", async ({ page }) => {
   await expect(page.locator("#pdfCopyButton")).toHaveText("Original PDF");
   await expect(page.locator("#pdfCopyButton")).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(700);
+  await page.locator("#actionsButton").click();
+  await expect(page.locator("#downloadPdf")).toHaveAttribute("href", /pdfs\/alpha-stam\.pdf$/);
+  await expect(page.locator("#downloadPdf")).toHaveAttribute(
+    "download",
+    `${localDay()}-Alpha-Hymn-STAM.pdf`
+  );
+  await page.locator("#closeActions").click();
 
   await page.reload();
   await expect(page.locator("#musicPages")).toHaveAttribute("data-pdf-url", /pdfs\/alpha-stam\.pdf$/);

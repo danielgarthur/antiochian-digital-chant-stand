@@ -5,11 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#26372f">
     <title>Antiochian Chant Stand</title>
-    <link rel="stylesheet" href="./css/site.css?v=98b12c1d50a3">
+    <link rel="stylesheet" href="./css/site.css?v=ac9ca7e1eb1b">
   </head>
   <body class="notes-mode">
     <header class="controls" aria-label="Music navigation">
       <div class="top-row">
+        <button id="actionsButton" class="header-action actions-button" type="button" aria-label="More options" title="More options">
+          <svg class="view-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.25" />
+            <circle cx="12" cy="12" r="1.25" />
+            <circle cx="19" cy="12" r="1.25" />
+          </svg>
+        </button>
         <details id="schedule" class="schedule">
           <summary>
             <span id="scheduleLabel" class="schedule-label"><span id="scheduleDay">Loading…</span><span class="schedule-separator" aria-hidden="true"> · </span><span id="scheduleService">service…</span></span>
@@ -34,7 +41,7 @@
             </div>
           </div>
         </details>
-        <button id="viewToggle" class="view-toggle" type="button" aria-label="Return to music" title="Return to music">
+        <button id="viewToggle" class="header-action view-toggle" type="button" aria-label="Return to music" title="Return to music">
           <svg id="notesIcon" class="view-icon" viewBox="0 0 24 24" aria-hidden="true" hidden>
             <path d="M6 3h9l3 3v15H6z" />
             <path d="M15 3v4h4M9 11h6M9 15h6" />
@@ -61,6 +68,35 @@
         <button id="nextMusic" class="arrow" type="button" aria-label="Next music">›</button>
       </div>
     </header>
+
+    <dialog id="actionsDialog" class="settings-dialog actions-dialog" aria-labelledby="actionsTitle">
+      <div class="dialog-heading">
+        <strong id="actionsTitle">Options</strong>
+        <button id="closeActions" class="dialog-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="actions-content">
+        <a id="downloadPdf" class="download-action" href="#" download>
+          <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12m-5-5 5 5 5-5M5 20h14" />
+          </svg>
+          <span>
+            <strong>Download current PDF</strong>
+            <small id="downloadDescription">Save the service notes</small>
+          </span>
+        </a>
+        <div class="actions-divider" role="presentation"></div>
+        <label class="preference-row" for="showBilingualServices">
+          <span>
+            <strong>Show bilingual services</strong>
+            <small>Include bilingual editions in the service list</small>
+          </span>
+          <span class="switch-control">
+            <input id="showBilingualServices" type="checkbox">
+            <span class="switch-track" aria-hidden="true"></span>
+          </span>
+        </label>
+      </div>
+    </dialog>
 
     <dialog id="settingsDialog" class="settings-dialog" aria-labelledby="settingsTitle">
       <div class="dialog-heading">
@@ -90,6 +126,6 @@
       <div id="notesPages" class="pages"></div>
     </main>
 
-    <script type="module" src="./js/app.js?v=eec53de69005"></script>
+    <script type="module" src="./js/app.js?v=4392313ba3e7"></script>
   </body>
 </html>

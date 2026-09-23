@@ -112,10 +112,9 @@ button:disabled { cursor: default; opacity: .28; }
   padding-top: .2rem;
 }
 
-.view-toggle {
+.header-action {
   position: absolute;
   top: 0;
-  right: 0;
   width: var(--view-toggle-width);
   min-height: 3rem;
   display: grid;
@@ -127,6 +126,12 @@ button:disabled { cursor: default; opacity: .28; }
   color: var(--green);
   font-weight: 750;
 }
+
+.actions-button { left: 0; }
+
+.actions-button .view-icon { fill: currentColor; stroke: none; }
+
+.view-toggle { right: 0; }
 
 .view-icon {
   width: 1.35rem;
@@ -405,6 +410,116 @@ body:not(.notes-mode) .music-row { margin-bottom: 0; }
 
 .settings-dialog::backdrop { background: #0008; }
 
+.actions-content {
+  display: grid;
+  padding: .7rem;
+}
+
+.download-action,
+.preference-row {
+  display: flex;
+  width: 100%;
+  min-height: 4rem;
+  align-items: center;
+  gap: .8rem;
+  padding: .7rem;
+  border-radius: .5rem;
+  color: var(--ink);
+}
+
+.download-action {
+  text-decoration: none;
+  touch-action: manipulation;
+}
+
+.download-action:active { background: var(--green-light); }
+
+.download-action:focus-visible,
+.preference-row:has(input:focus-visible) {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+}
+
+.action-icon {
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.download-action span,
+.preference-row > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: .15rem;
+}
+
+.download-action small,
+.preference-row small {
+  color: #657068;
+  font-size: .78rem;
+  line-height: 1.25;
+}
+
+.actions-divider {
+  height: 1px;
+  margin: .35rem .7rem;
+  background: var(--line);
+}
+
+.preference-row {
+  justify-content: space-between;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.switch-control {
+  position: relative;
+  width: 3.15rem;
+  height: 2rem;
+  flex: none;
+}
+
+.switch-control input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #aeb5af;
+  transition: background-color .15s ease;
+}
+
+.switch-track::after {
+  content: "";
+  position: absolute;
+  top: .2rem;
+  left: .2rem;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px #0005;
+  transition: transform .15s ease;
+}
+
+.switch-control input:checked + .switch-track { background: var(--green); }
+
+.switch-control input:checked + .switch-track::after { transform: translateX(1.15rem); }
+
 .dialog-heading {
   display: flex;
   min-height: 3.2rem;
@@ -527,7 +642,7 @@ body:not(.notes-mode) .viewer { padding-top: .35rem; }
 }
 
 @media (max-width: 600px) {
-  .schedule summary, .view-toggle { min-height: 3.15rem; }
+  .schedule summary, .header-action { min-height: 3.15rem; }
 
   .schedule-label {
     display: grid;
