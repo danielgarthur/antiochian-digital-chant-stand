@@ -45,11 +45,14 @@ class BuildLibraryTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             input_dir = root / "input"
+            special_input_dir = root / "special-input"
             data_dir = root / "docs" / "data"
             pdf_dir = root / "docs" / "pdfs"
             service_dir = root / "docs" / "services"
             music_cache_dir = root / "music-cache"
-            for path in (input_dir, data_dir, pdf_dir, service_dir, music_cache_dir):
+            for path in (
+                input_dir, special_input_dir, data_dir, pdf_dir, service_dir, music_cache_dir
+            ):
                 path.mkdir(parents=True)
             for filename in (
                 "Sep 06 2026 ORTHROS.pdf",
@@ -67,6 +70,7 @@ class BuildLibraryTests(unittest.TestCase):
             )
             with (
                 patch.object(build_library, "INPUT_DIR", input_dir),
+                patch.object(build_library, "SPECIAL_INPUT_DIR", special_input_dir),
                 patch.object(build_library, "DOCS_DIR", root / "docs"),
                 patch.object(build_library, "DATA_DIR", data_dir),
                 patch.object(build_library, "PDF_DIR", pdf_dir),
@@ -101,11 +105,14 @@ class BuildLibraryTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             input_dir = root / "input"
+            special_input_dir = root / "special-input"
             data_dir = root / "docs" / "data"
             pdf_dir = root / "docs" / "pdfs"
             service_dir = root / "docs" / "services"
             music_cache_dir = root / "music-cache"
-            for path in (input_dir, data_dir, pdf_dir, service_dir, music_cache_dir):
+            for path in (
+                input_dir, special_input_dir, data_dir, pdf_dir, service_dir, music_cache_dir
+            ):
                 path.mkdir(parents=True)
             for filename in (
                 "Sep 05 2026 VESP.pdf",
@@ -126,6 +133,7 @@ class BuildLibraryTests(unittest.TestCase):
             )
             with (
                 patch.object(build_library, "INPUT_DIR", input_dir),
+                patch.object(build_library, "SPECIAL_INPUT_DIR", special_input_dir),
                 patch.object(build_library, "DOCS_DIR", root / "docs"),
                 patch.object(build_library, "DATA_DIR", data_dir),
                 patch.object(build_library, "PDF_DIR", pdf_dir),
@@ -216,6 +224,34 @@ class BuildLibraryTests(unittest.TestCase):
                 },
             ],
         )
+
+    def test_special_vigil_and_repository_music_are_supported(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            special_music_dir = root / "special-music"
+            pdf_dir = root / "docs" / "pdfs"
+            special_music_dir.mkdir()
+            pdf_dir.mkdir(parents=True)
+            music = special_music_dir / "hymn.pdf"
+            music.write_bytes(b"%PDF local music")
+            source_url = (
+                "https://github.com/example/project/blob/main/"
+                "special-music/hymn.pdf"
+            )
+
+            self.assertEqual(
+                build_library.parse_service_file(Path("Sep 24 2026 VIGIL.pdf")),
+                ("2026-09-24", "VIGIL", "Vigil"),
+            )
+            with (
+                patch.object(build_library, "SPECIAL_MUSIC_DIR", special_music_dir),
+                patch.object(build_library, "PDF_DIR", pdf_dir),
+            ):
+                source = build_library.repository_music_path(source_url)
+                url = build_library.publish_repository_music(source, source_url)
+
+            self.assertEqual(source, music.resolve())
+            self.assertTrue((root / "docs" / url).is_file())
 
     def test_access_token_uses_client_credentials_without_persisting_bearer_header(self):
         response = Mock()

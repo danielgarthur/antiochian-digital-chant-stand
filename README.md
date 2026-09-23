@@ -56,6 +56,12 @@ Use the upstream filename convention, such as `Sep 06 2026 ORTHROS.pdf`, so the 
 can assign the date and service. Other PDF names are still included under their own
 filename as undated music.
 
+Parish-specific services that should be committed and deployed belong in
+`pipeline/special-input/`. The same dated filename convention applies, with `VIGIL`
+also recognized (for example, `Sep 24 2026 VIGIL.pdf`). Music PDFs committed beneath
+`special-music/` can be linked from the service PDF using their GitHub file URLs; the
+builder reads those files directly from the checkout and publishes content-hashed copies.
+
 Downloaded music is content-hashed and retained separately in
 `pipeline/.music-cache/` for reuse. The builder checks cached music at most once per
 day and uses HTTP validators when the source server provides them. Published PDFs in

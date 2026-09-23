@@ -24,6 +24,8 @@ from optimize_pdfs import optimize_scanline_pdf, optimized_filename, pathologica
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUT_DIR = ROOT / "pipeline" / "input"
+SPECIAL_INPUT_DIR = ROOT / "pipeline" / "special-input"
+SPECIAL_MUSIC_DIR = ROOT / "special-music"
 DOCS_DIR = ROOT / "docs"
 PDF_DIR = DOCS_DIR / "pdfs"
 SERVICE_PDF_DIR = DOCS_DIR / "services"
@@ -32,9 +34,14 @@ CACHE_PATH = ROOT / "pipeline" / ".download-cache.json"
 MUSIC_CACHE_DIR = ROOT / "pipeline" / ".music-cache"
 CACHE_VERSION = 2
 
-SERVICE_LABELS = {"VESP": "Vespers", "ORTHROS": "Orthros", "READ": "Liturgy"}
+SERVICE_LABELS = {
+    "VESP": "Vespers",
+    "ORTHROS": "Orthros",
+    "READ": "Liturgy",
+    "VIGIL": "Vigil",
+}
 SERVICE_RE = re.compile(
-    r"(?P<date>[A-Z][a-z]{2} \d{2} \d{4})\s+(?P<type>VESP|ORTHROS|READ)\.pdf$",
+    r"(?P<date>[A-Z][a-z]{2} \d{2} \d{4})\s+(?P<type>VESP|ORTHROS|READ|VIGIL)\.pdf$",
     re.IGNORECASE,
 )
 ANTIOCHIAN_BASE_URL = "https://www.antiochian.org"
@@ -300,6 +307,33 @@ def publish_music_pdf(source: Path) -> str:
     return f"pdfs/{source.name}"
 
 
+def repository_music_path(source_url: str) -> Path | None:
+    """Resolve a checked-in special-music GitHub link without downloading it."""
+    parsed = urlparse(source_url)
+    if parsed.hostname not in {"github.com", "raw.githubusercontent.com"}:
+        return None
+    marker = "/special-music/"
+    if marker not in parsed.path:
+        return None
+    relative_path = Path(unquote(parsed.path.split(marker, 1)[1]))
+    candidate = (SPECIAL_MUSIC_DIR / relative_path).resolve()
+    try:
+        candidate.relative_to(SPECIAL_MUSIC_DIR.resolve())
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+def publish_repository_music(source: Path, source_url: str) -> str:
+    """Publish checked-in music with a content hash for safe browser caching."""
+    content = source.read_bytes()
+    filename = content_filename(source_url, hashlib.sha256(content).hexdigest())
+    destination = PDF_DIR / filename
+    if not destination.exists():
+        destination.write_bytes(content)
+    return f"pdfs/{filename}"
+
+
 def pdf_entries(services: list[dict]):
     for service in services:
         yield service
@@ -458,6 +492,7 @@ def ensure_pdfjs(session: requests.Session) -> None:
 
 def build(args: argparse.Namespace) -> None:
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    SPECIAL_INPUT_DIR.mkdir(parents=True, exist_ok=True)
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     SERVICE_PDF_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -484,7 +519,8 @@ def build(args: argparse.Namespace) -> None:
         (source["date"], canonical_service_type(source["type"]))
         for source in discovered_services
     }
-    for source_pdf in sorted(INPUT_DIR.glob("*.pdf")):
+    manual_pdfs = sorted(INPUT_DIR.glob("*.pdf")) + sorted(SPECIAL_INPUT_DIR.glob("*.pdf"))
+    for source_pdf in manual_pdfs:
         if source_pdf in discovered_paths:
             continue
         if source_pdf.name.startswith(API_SERVICE_CACHE_PREFIX):
@@ -519,9 +555,15 @@ def build(args: argparse.Namespace) -> None:
             for link in piece["links"]:
                 source_url = link["sourceUrl"]
                 if source_url not in downloaded_this_run:
-                    downloaded_this_run[source_url] = download_music(
-                        session, source_url, cache, args.refresh_music, report
-                    )
+                    repository_source = repository_music_path(source_url)
+                    if repository_source:
+                        downloaded_this_run[source_url] = publish_repository_music(
+                            repository_source, source_url
+                        )
+                    else:
+                        downloaded_this_run[source_url] = download_music(
+                            session, source_url, cache, args.refresh_music, report
+                        )
                 local_url = downloaded_this_run[source_url]
                 if local_url:
                     usable_links.append({**link, "url": local_url})
