@@ -276,7 +276,13 @@ function applyServiceVisibility() {
   let nextIndex = selectedService ? services.indexOf(selectedService) : -1;
   if (nextIndex < 0 && selectedDay) {
     const sameDay = servicesOn(selectedDay);
-    if (sameDay.length) nextIndex = services.indexOf(preferredServiceForDay(sameDay, selectedDay));
+    const nonBilingualType = selectedService?.type.replace(/^BILINGUAL_/, "");
+    const matchingService = nonBilingualType === selectedService?.type
+      ? undefined
+      : sameDay.find((service) => service.type === nonBilingualType);
+    if (sameDay.length) {
+      nextIndex = services.indexOf(matchingService || preferredServiceForDay(sameDay, selectedDay));
+    }
   }
   if (nextIndex < 0) nextIndex = chooseInitialService();
 
