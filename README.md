@@ -118,8 +118,11 @@ tone up over approximately 150 ms. Decreases, including mute, respond in about
 10 ms with brief smoothing to avoid clicks. Adjusting the level
 never starts a tone or extends its two-second duration. Opening the panel is silent.
 
-Audio is synthesized locally with Web Audio, using a sine fundamental and a faint
-second harmonic, with gentle attack and release. No audio samples or third-party
+Audio is synthesized locally with Web Audio, with gentle attack and release.
+The standard timbre uses stronger second and third harmonics in octave 3 to help
+low notes carry through tablet speakers. Octave 4 keeps the soft fundamental and
+faint second harmonic. Both waveforms retain the same peak output ceiling.
+No audio samples or third-party
 sound assets are used. Peak digital output is capped at 0.05 (approximately
 −26 dBFS), with a default of 0.01 (−40 dBFS). These limits reduce output but cannot
 guarantee acoustic loudness: start with the device's media volume low, especially
@@ -136,8 +139,9 @@ Mobile sound quality and final speaker loudness should be checked on physical
 iOS and Android devices before using the feature during a service.
 
 Expand **Calibration / debug** in the pitch pipe to test it on a tablet resting
-on the chant stand. Controls offer ceilings of 0.005–0.20, pure sine / soft /
-brighter harmonic timbres, and 1.5–4 second total duration. Attack and release
+on the chant stand. Controls offer ceilings of 0.005–0.20, pure sine / standard /
+brighter harmonic timbres, and 1.5–4 second total duration. Standard adapts to the
+octave; explicit sine and brighter choices apply to both octaves. Attack and release
 remain fixed at the standard 150 ms and 200 ms. All settings are saved on this
 browser. Changes stop playback; tap Play again to hear them. The normal 0.05 ceiling applies unless **Enable louder test ceilings for this opening**
 is checked. Test ceilings of 0.10 and 0.20 require this explicit permission each

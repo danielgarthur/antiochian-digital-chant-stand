@@ -44,6 +44,7 @@ export function initializePitchPipe() {
     const settings = comparison.checked ? DEFAULT_SOUND : experiment;
     return { ...settings, ceiling: Math.min(settings.ceiling, louderTests.checked ? MAX_TEST_GAIN : MAX_GAIN) };
   };
+  const resolvedTimbre = (settings) => settings.timbre === "soft" && octave.value === "3" ? "bright" : settings.timbre;
 
   try {
     const saved = JSON.parse(localStorage.getItem(CALIBRATION_KEY));
@@ -67,7 +68,7 @@ export function initializePitchPipe() {
   function updateCalibration() {
     get("pitchExperiment").disabled = comparison.checked;
     const settings = sound();
-    get("pitchCalibrationSummary").textContent = `${comparison.checked ? "Standard defaults" : "Experiment"}: ${settings.timbre}, effective ceiling ${settings.ceiling}, ${settings.duration} s.${!comparison.checked && experiment.ceiling > settings.ceiling ? " Higher ceiling saved; enable louder testing to use it." : ""}`;
+    get("pitchCalibrationSummary").textContent = `${comparison.checked ? "Standard defaults" : "Experiment"}: ${resolvedTimbre(settings)}, effective ceiling ${settings.ceiling}, ${settings.duration} s.${!comparison.checked && experiment.ceiling > settings.ceiling ? " Higher ceiling saved; enable louder testing to use it." : ""}`;
   }
 
   function disconnectVoice(ended) {
@@ -163,6 +164,7 @@ export function initializePitchPipe() {
   function choose() {
     stop();
     savePreferences();
+    updateCalibration();
   }
 
   NOTES.forEach((name, index) => {
@@ -271,7 +273,8 @@ export function initializePitchPipe() {
       const envelope = context.createGain();
       const gain = context.createGain();
       // Coefficient sum is 1: the wave cannot exceed unit peak amplitude.
-      const coefficients = TIMBRES[settings.timbre];
+      // Extra harmonics help the lower octave speak through small speakers.
+      const coefficients = TIMBRES[resolvedTimbre(settings)];
       oscillator.setPeriodicWave(context.createPeriodicWave(
         new Float32Array(coefficients.length), new Float32Array(coefficients),
         { disableNormalization: true }

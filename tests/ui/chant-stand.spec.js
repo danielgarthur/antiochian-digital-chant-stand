@@ -841,13 +841,13 @@ test('calibration settings persist, and default comparison preserves experiments
   await setPitchLevel(page, 80);
   await page.locator('#pitchCompareDefaults').check();
   await expect(page.locator('#pitchTimbre')).toBeDisabled();
-  await expect(page.locator('#pitchCalibrationSummary')).toContainText('Standard defaults: soft, effective ceiling 0.05');
+  await expect(page.locator('#pitchCalibrationSummary')).toContainText('Standard defaults: bright, effective ceiling 0.05');
   await expect(page.locator('#pitchVolume')).toHaveValue('20');
   expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
   await page.locator('#pitchPlay').click();
   expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual([12]);
   expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBe(0.01);
-  expect(await page.evaluate(() => window.pitchAudio.wave.imaginary.length)).toBe(3);
+  expect(await page.evaluate(() => window.pitchAudio.wave.imaginary.length)).toBe(4);
   await page.locator('#pitchPlay').click();
   await page.reload();
   await openPitchCalibration(page);
@@ -1040,4 +1040,29 @@ test('backgrounding discards active and fading nodes before wake-up playback', a
   await page.locator('#pitchPlay').click();
   expect(await page.evaluate(() => window.pitchAudio.contexts.length)).toBe(2);
   expect(await page.evaluate(() => window.pitchAudio.oscillators[1].starts)).toEqual([10]);
+});
+
+test('standard timbre adds harmonics only in the lower octave at the same output gain', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await openPitchCalibration(page);
+  await page.locator('#pitchPlay').click();
+  const low = await page.evaluate(() => window.pitchAudio.wave.imaginary);
+  expect(low).toHaveLength(4);
+  expect(low[1]).toBeCloseTo(0.78);
+  expect(low[2]).toBeCloseTo(0.16);
+  expect(low[3]).toBeCloseTo(0.06);
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBe(0.01);
+  await page.locator('#pitchOctave').selectOption('4');
+  await expect(page.locator('#pitchCalibrationSummary')).toContainText('soft');
+  await page.locator('#pitchPlay').click();
+  const high = await page.evaluate(() => window.pitchAudio.wave.imaginary);
+  expect(high).toHaveLength(3);
+  expect(high[1]).toBeCloseTo(0.94);
+  expect(high[2]).toBeCloseTo(0.06);
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBe(0.01);
+  await page.locator('#pitchTimbre').selectOption('sine');
+  await page.locator('#pitchOctave').selectOption('3');
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.wave.imaginary)).toEqual([0, 1]);
 });
