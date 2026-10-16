@@ -162,6 +162,7 @@ button:disabled { cursor: default; opacity: .28; }
 .pitch-calibration fieldset label { display: grid; grid-template-columns: 1fr minmax(0, 1.6fr); align-items: center; gap: .5rem; margin: .4rem 0; }
 .pitch-calibration select, .pitch-calibration button { min-height: 2.8rem; max-width: 100%; padding: .4rem; border: 1px solid var(--line); border-radius: .4rem; background: white; color: var(--ink); font: inherit; }
 .pitch-calibration small { display: block; margin-bottom: .7rem; }
+#pitchAudioLog { width: 100%; margin: .5rem 0; padding: .5rem; font: .75rem/1.4 ui-monospace, monospace; }
 .pitch-compare { display: flex; align-items: center; gap: .5rem; min-height: 2.8rem; }
 .pitch-compare input { width: 1.3rem; height: 1.3rem; }
 .pitch-play {

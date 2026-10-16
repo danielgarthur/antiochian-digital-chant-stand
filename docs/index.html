@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#26372f">
     <title>Antiochian Chant Stand</title>
-    <link rel="stylesheet" href="./css/site.css?v=98d9b5c598ef">
+    <link rel="stylesheet" href="./css/site.css?v=b736f7912ec1">
   </head>
   <body class="notes-mode">
     <header class="controls" aria-label="Music navigation">
@@ -112,6 +112,12 @@
           <small>The normal ceiling is 0.05; enabled tests are limited to 0.20. Raising the effective ceiling limits tone level to 20% or less. Stop always uses an 8 ms fade.</small>
           <button id="pitchResetCalibration" type="button">Reset sound to defaults</button>
           <p id="pitchCalibrationStatus" role="status">Settings are saved on this browser.</p>
+          <label for="pitchAudioLog">Audio wake-up diagnostics</label>
+          <small id="pitchAudioLogHelp">Play once, lock the phone, unlock, then tap Play again. The latest 100 events are kept on this browser. Select the log text to copy it; nothing is uploaded.</small>
+          <textarea id="pitchAudioLog" rows="8" readonly wrap="off" aria-describedby="pitchAudioLogHelp"></textarea>
+          <button id="pitchCopyAudioLog" type="button">Copy log</button>
+          <button id="pitchClearAudioLog" type="button">Clear diagnostic log</button>
+          <p id="pitchAudioLogStatus" role="status"></p>
         </details>
       </div>
       <div class="pitch-pipe-footer">
@@ -177,6 +183,6 @@
       <div id="notesPages" class="pages"></div>
     </main>
 
-    <script type="module" src="./js/app.js?v=41d4d8b37a12"></script>
+    <script type="module" src="./js/app.js?v=7aceb5140fa9"></script>
   </body>
 </html>

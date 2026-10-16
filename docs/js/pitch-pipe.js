@@ -6,6 +6,7 @@ const MAX_TEST_GAIN = 0.2; // Temporary, explicitly enabled calibration ceiling.
 const DEFAULT_LEVEL = 20; // 0.01 gain (-40 dBFS peak).
 const DURATION = 2;
 const CALIBRATION_KEY = "antiochian-chant-stand:pitch-calibration:v1";
+const AUDIO_LOG_KEY = "antiochian-chant-stand:pitch-audio-log:v1";
 const DEFAULT_SOUND = { ceiling: MAX_GAIN, timbre: "soft", attack: 0.15, release: 0.2, duration: DURATION };
 const CALIBRATION_OPTIONS = {
   ceiling: [0.005, 0.01, 0.025, MAX_GAIN, 0.1, MAX_TEST_GAIN], timbre: ["sine", "soft", "bright"],
@@ -29,6 +30,51 @@ export function initializePitchPipe() {
   let generation = 0;
   let timer;
   let silenceUntil = 0;
+  let clockTimer;
+  const connectedVoices = new Set();
+  let audioEvents = [];
+  let contextId = 0;
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUDIO_LOG_KEY));
+    if (Array.isArray(saved)) audioEvents = saved.filter((entry) => typeof entry === "string").slice(-100).map((entry) => entry.slice(0, 2000));
+  } catch { /* Diagnostics must never interfere with audio. */ }
+  function logAudio(event, details = {}) {
+    const entry = `${new Date().toISOString()} ${event} ${JSON.stringify({
+      contextId, state: context?.state ?? "none", audioTime: context?.currentTime ?? null,
+      generation, active, hasVoice: Boolean(voice), visibility: document.visibilityState,
+      focused: document.hasFocus(), ...details,
+    })}`;
+    audioEvents.push(entry);
+    audioEvents = audioEvents.slice(-100);
+    get("pitchAudioLog").value = audioEvents.join("\n");
+    try { localStorage.setItem(AUDIO_LOG_KEY, JSON.stringify(audioEvents)); }
+    catch { get("pitchAudioLogHelp").textContent = "Browser storage unavailable. Select and copy this log before leaving the page. Nothing is uploaded."; }
+  }
+  get("pitchClearAudioLog").addEventListener("click", () => {
+    audioEvents = [];
+    logAudio("log cleared");
+  });
+  get("pitchCopyAudioLog").addEventListener("click", async () => {
+    const output = get("pitchAudioLog");
+    const text = output.value;
+    try {
+      await navigator.clipboard.writeText(text);
+      get("pitchAudioLogStatus").textContent = "Log copied.";
+    } catch {
+      output.focus();
+      output.select();
+      output.setSelectionRange(0, output.value.length);
+      // Local HTTP testing may lack the modern clipboard API entirely.
+      try {
+        if (document.execCommand("copy")) {
+          get("pitchAudioLogStatus").textContent = "Log copied.";
+          return;
+        }
+      } catch { /* Keep the text selected for manual copying. */ }
+      get("pitchAudioLogStatus").textContent = "Automatic copy unavailable. Touch and hold the selected log, then choose Copy.";
+    }
+  });
+  logAudio("page initialized", { diagnosticVersion: 2, userAgent: navigator.userAgent, secureContext: window.isSecureContext });
   let experiment = { ...DEFAULT_SOUND };
   const calibrationControls = Object.fromEntries(Object.keys(CALIBRATION_OPTIONS).map((key) =>
     [key, get(`pitch${key[0].toUpperCase()}${key.slice(1)}`)]));
@@ -70,6 +116,24 @@ export function initializePitchPipe() {
     ended.oscillator.disconnect();
     ended.envelope.disconnect();
     ended.gain.disconnect();
+    connectedVoices.delete(ended);
+  }
+
+  function discardContext(reason) {
+    const discarded = context;
+    logAudio("context discarded", { reason });
+    context = undefined; // Ignore late events from this context, even during close().
+    for (const graph of connectedVoices) {
+      disconnectVoice(graph);
+      try { graph.oscillator.stop(); } catch { /* A failed start may leave an unstarted source. */ }
+    }
+    voice = null;
+    silenceUntil = 0;
+    stop(reason);
+    if (discarded) {
+      try { Promise.resolve(discarded.close()).catch((error) => logAudio("context close failed", { message: error?.message })); }
+      catch (error) { logAudio("context close failed", { message: error?.message }); }
+    }
   }
 
   volume.value = String(DEFAULT_LEVEL);
@@ -99,9 +163,11 @@ export function initializePitchPipe() {
     }
   }
 
-  function stop() {
+  function stop(reason = "control change") {
+    logAudio("stop", { reason: typeof reason === "string" ? reason : reason.type, nextGeneration: generation + 1 });
     generation += 1; // Invalidates any outstanding AudioContext.resume().
     clearTimeout(timer);
+    clearTimeout(clockTimer);
     if (voice) {
       const ending = voice;
       voice = null;
@@ -115,6 +181,9 @@ export function initializePitchPipe() {
         gain.linearRampToValueAtTime(0, silenceUntil);
         ending.oscillator.onended = () => disconnectVoice(ending);
         ending.oscillator.stop(silenceUntil);
+        // A frozen clock cannot finish the fade or fire onended. Never leave
+        // that source connected for a later, unexpected recovery.
+        setTimeout(() => { if (connectedVoices.has(ending)) disconnectVoice(ending); }, 30);
       } else {
         // An interrupted audio clock cannot finish a fade; disconnect now.
         disconnectVoice(ending);
@@ -201,8 +270,10 @@ export function initializePitchPipe() {
   });
 
   play.addEventListener("click", async () => {
-    if (active) { stop(); return; }
-    if (selectedGain() === 0) { status.textContent = "Tone level is muted."; return; }
+    logAudio("Play/Stop tapped", { outputGain: selectedGain(), pitch: selectedName() });
+    if (active) { stop("Stop tapped"); return; }
+    if (selectedGain() === 0) { logAudio("play muted"); status.textContent = "Tone level is muted."; return; }
+    if (context && context.state !== "running") discardContext("stale context before Play");
     const request = ++generation;
     active = true; // Stop remains available even while audio is initializing.
     update();
@@ -212,13 +283,37 @@ export function initializePitchPipe() {
       if (!AudioContext) throw new Error("Web Audio unavailable");
       if (!context || context.state === "closed") {
         context = new AudioContext();
-        context.addEventListener("statechange", () => {
-          if (context.state !== "running") stop();
+        contextId += 1;
+        silenceUntil = 0;
+        logAudio("context created", { request });
+        const created = context;
+        created.addEventListener("statechange", () => {
+          if (context !== created) return;
+          logAudio("context statechange");
+          // A resume may pass through interrupted/suspended. Give that explicit
+          // request time to settle; interruptions of existing audio invalidate it.
+          if (created.state !== "running" && (voice || !active || created.state === "closed")) {
+            discardContext("non-running statechange");
+          }
         });
       }
       // Called directly from the gesture for iOS/Android autoplay policies.
-      await context.resume();
-      if (request !== generation || !dialog.open || document.hidden) return;
+      logAudio("resume requested", { request });
+      const playingContext = context;
+      const pendingTimer = setTimeout(() => {
+        logAudio("resume still pending after 1500 ms", { request });
+        if (request === generation && context === playingContext) {
+          discardContext("resume timed out");
+          status.textContent = "Audio did not wake up. Tap Play to try again.";
+        }
+      }, 1500);
+      try { await playingContext.resume(); }
+      finally { clearTimeout(pendingTimer); }
+      logAudio("resume fulfilled", { request });
+      if (request !== generation || !dialog.open || document.hidden) {
+        logAudio("play canceled after resume", { request, requestInvalidated: request !== generation, dialogOpen: dialog.open, hidden: document.hidden });
+        return;
+      }
       if (context.state !== "running") throw new Error("Audio interrupted");
       // A rapid restart must not overlap the previous tone's brief stop fade.
       const now = Math.max(context.currentTime, silenceUntil);
@@ -242,25 +337,38 @@ export function initializePitchPipe() {
       envelope.connect(gain);
       gain.connect(context.destination);
       voice = { oscillator, envelope, gain };
+      connectedVoices.add(voice);
       const playing = voice;
       oscillator.onended = () => {
+        logAudio("oscillator ended", { request });
         disconnectVoice(playing);
-        if (request === generation) { voice = null; stop(); }
+        if (request === generation) { voice = null; stop("tone ended"); }
       };
       oscillator.start(now);
       oscillator.stop(now + settings.duration); // Audio-clock limit, never beyond 4 seconds.
-      timer = setTimeout(() => { if (request === generation) stop(); }, settings.duration * 1000 + 100);
+      timer = setTimeout(() => { if (request === generation) stop("duration timer"); }, settings.duration * 1000 + 100);
+      logAudio("tone scheduled", { request, startTime: now, endTime: now + settings.duration, outputGain: selectedGain(), settings });
+      clockTimer = setTimeout(() => {
+        if (request !== generation || context !== playingContext) return;
+        const advancedSeconds = playingContext.currentTime - now;
+        logAudio("audio clock check", { request, advancedSeconds });
+        if (advancedSeconds <= 0) {
+          discardContext("audio clock stalled");
+          status.textContent = "Audio did not wake up. Tap Play to try again.";
+        }
+      }, 500);
       status.textContent = `Playing ${selectedName()} · stops after ${settings.duration} seconds`;
-    } catch {
+    } catch (error) {
+      logAudio("play error", { request, name: error?.name, message: error?.message });
       if (request !== generation) return;
-      stop();
+      discardContext("play error");
       status.textContent = "Audio unavailable or interrupted. Tap Play to try again.";
     }
   });
 
   trigger.setAttribute("aria-expanded", "false");
   trigger.addEventListener("click", () => {
-    stop();
+    stop("dialog opened");
     louderTests.checked = false;
     previousCeiling = sound().ceiling;
     updateCalibration();
@@ -268,14 +376,19 @@ export function initializePitchPipe() {
     trigger.setAttribute("aria-expanded", "true");
     get("closePitchPipe").focus(); // Enter after opening cannot accidentally play.
   });
-  function close() { stop(); dialog.close(); }
+  function close() { stop("dialog close requested"); dialog.close(); }
   get("closePitchPipe").addEventListener("click", close);
   dialog.addEventListener("click", (event) => { if (event.target === dialog) close(); });
   dialog.addEventListener("cancel", stop);
-  dialog.addEventListener("close", () => { stop(); trigger.setAttribute("aria-expanded", "false"); });
-  document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); });
-  window.addEventListener("blur", stop);
-  window.addEventListener("pagehide", stop);
+  dialog.addEventListener("close", () => { stop("dialog closed"); trigger.setAttribute("aria-expanded", "false"); });
+  document.addEventListener("visibilitychange", () => {
+    logAudio("visibilitychange");
+    if (document.hidden) discardContext("page hidden");
+  });
+  window.addEventListener("focus", () => logAudio("window focus"));
+  window.addEventListener("pageshow", (event) => logAudio("pageshow", { persisted: event.persisted }));
+  window.addEventListener("blur", () => discardContext("blur"));
+  window.addEventListener("pagehide", () => discardContext("pagehide"));
   window.addEventListener("popstate", close);
   update();
 }

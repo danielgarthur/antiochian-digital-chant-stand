@@ -512,7 +512,7 @@ test("service arrows stay within the selected date", async ({ page }) => {
 // exercise the mobile initialization/Stop race deterministically.
 async function instrumentPitchAudio(page) {
   await page.addInitScript(() => {
-    window.pitchAudio = { oscillators: [], gains: [], hold: false };
+    window.pitchAudio = { oscillators: [], gains: [], contexts: [], hold: false };
     const param = () => ({
       value: 0,
       events: [],
@@ -528,12 +528,14 @@ async function instrumentPitchAudio(page) {
         this.currentTime = 10;
         this.destination = {};
         window.pitchAudio.context = this;
+        window.pitchAudio.contexts.push(this);
       }
       resume() {
         return window.pitchAudio.hold
           ? new Promise((resolve) => { window.pitchAudio.release = resolve; })
           : Promise.resolve();
       }
+      close() { this.state = "closed"; this.dispatchEvent(new Event("statechange")); return Promise.resolve(); }
       createPeriodicWave(real, imaginary, options) {
         window.pitchAudio.wave = { imaginary: [...imaginary], ...options };
         return {};
@@ -623,6 +625,7 @@ test("pitch audio has a bounded waveform, quiet default, gentle envelope and sch
     { kind: "set", value: 0, time: 10 }, { kind: "ramp", value: 1, time: 10.15 },
     { kind: "set", value: 1, time: 11.8 }, { kind: "ramp", value: 0, time: 12 },
   ]);
+  await page.evaluate(() => { window.pitchAudio.context.currentTime = 10.5; });
   expect(audio.wave.disableNormalization).toBe(true);
   expect(audio.wave.imaginary.reduce((sum, value) => sum + Math.abs(value), 0)).toBeLessThanOrEqual(1);
   await expect(page.locator("#pitchPlay")).toHaveText("Play A3", { timeout: 3500 });
@@ -692,7 +695,7 @@ for (const exit of ["stop", "close", "escape", "backdrop", "note", "octave", "bl
       window.pitchAudio.context.dispatchEvent(new Event("statechange"));
     });
     await expect(page.locator("#pitchPlay")).not.toHaveText("Stop sound");
-    expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual(exit === "interrupted" ? [12, "now"] : [12, 10.008]);
+    expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual(["interrupted", "hidden", "blur", "pagehide"].includes(exit) ? [12, "now"] : [12, 10.008]);
     expect(await page.evaluate(() => window.pitchAudio.gains[1].disconnected)).toBe(true);
     expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(1);
   });
@@ -962,4 +965,124 @@ test('higher test ceilings require fresh permission and reset restores standard 
   await openPitchCalibration(page);
   await expect(page.locator('#pitchCeiling')).toHaveValue('0.05');
   await expect(page.locator('#pitchVolume')).toHaveValue('20');
+});
+
+test('intermediate interruption during resume does not cancel playback and diagnostics survive reload', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await openPitchCalibration(page);
+  await page.locator('#pitchClearAudioLog').click();
+  await page.evaluate(() => { window.pitchAudio.hold = true; });
+  await page.locator('#pitchPlay').click();
+  await page.evaluate(() => {
+    window.pitchAudio.context.state = 'interrupted';
+    window.pitchAudio.context.dispatchEvent(new Event('statechange'));
+    window.pitchAudio.context.state = 'running';
+    window.pitchAudio.release();
+  });
+  const log = await page.locator('#pitchAudioLog').inputValue();
+  expect(log).toContain('resume requested');
+  expect(log).toContain('context statechange');
+  expect(log).not.toContain('non-running statechange');
+  expect(log).toContain('resume fulfilled');
+  expect(log).not.toContain('play canceled after resume');
+  expect(log).toContain('tone scheduled');
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(1);
+  await page.reload();
+  await openPitchCalibration(page);
+  await expect(page.locator('#pitchAudioLog')).toHaveValue(/tone scheduled/);
+  await page.locator('#pitchClearAudioLog').click();
+  await expect(page.locator('#pitchAudioLog')).not.toHaveValue(/tone scheduled/);
+});
+
+test('pending resume times out safely, ignores late fulfillment, and logs remain bounded', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await openPitchCalibration(page);
+  await page.evaluate(() => { window.pitchAudio.hold = true; });
+  await page.locator('#pitchPlay').click();
+  await expect(page.locator('#pitchAudioLog')).toHaveValue(/resume still pending after 1500 ms/);
+  await expect(page.locator('#pitchPlay')).toHaveText('Play A3');
+  await expect(page.locator('#pitchStatus')).toContainText('Audio did not wake up');
+  await page.evaluate(() => window.pitchAudio.release());
+  await expect(page.locator('#pitchAudioLog')).toHaveValue(/play canceled after resume/);
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+  await page.evaluate(() => {
+    for (let count = 0; count < 110; count++) window.dispatchEvent(new Event('focus'));
+  });
+  const lines = (await page.locator('#pitchAudioLog').inputValue()).split('\n');
+  expect(lines).toHaveLength(100);
+  expect(lines.every((line) => line.includes('window focus'))).toBe(true);
+});
+
+test('Copy log uses the clipboard when available and selects text when blocked', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await openPitchCalibration(page);
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+    configurable: true, value: { writeText: async (text) => { window.copiedAudioLog = text; } },
+  }));
+  const log = await page.locator('#pitchAudioLog').inputValue();
+  await page.locator('#pitchCopyAudioLog').click();
+  await expect(page.locator('#pitchAudioLogStatus')).toHaveText('Log copied.');
+  expect(await page.evaluate(() => window.copiedAudioLog)).toBe(log);
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+    configurable: true, value: { writeText: async () => { throw new Error('blocked'); } },
+  }));
+  await page.evaluate(() => { document.execCommand = () => false; });
+  await page.locator('#pitchCopyAudioLog').click();
+  await expect(page.locator('#pitchAudioLogStatus')).toContainText('Automatic copy unavailable');
+  expect(await page.locator('#pitchAudioLog').evaluate((element) =>
+    element.selectionStart === 0 && element.selectionEnd === element.value.length)).toBe(true);
+  await page.evaluate(() => { document.execCommand = (command) => command === 'copy'; });
+  await page.locator('#pitchCopyAudioLog').click();
+  await expect(page.locator('#pitchAudioLogStatus')).toHaveText('Log copied.');
+});
+
+test('frozen running audio is disconnected and only a new Play tap creates a fresh context', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await openPitchCalibration(page);
+  await page.locator('#pitchPlay').click();
+  await expect(page.locator('#pitchStatus')).toContainText('Audio did not wake up');
+  expect(await page.evaluate(() => window.pitchAudio.context.state)).toBe('closed');
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].disconnected)).toBe(true);
+  expect(await page.evaluate(() => window.pitchAudio.contexts.length)).toBe(1);
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(1);
+  await expect(page.locator('#pitchAudioLog')).toHaveValue(/audio clock stalled/);
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.contexts.length)).toBe(2);
+  expect(await page.evaluate(() => window.pitchAudio.oscillators[1].starts)).toEqual([10]);
+  await page.evaluate(() => {
+    window.pitchAudio.context.currentTime = 10.5;
+    const old = window.pitchAudio.contexts[0];
+    old.state = 'interrupted';
+    old.dispatchEvent(new Event('statechange'));
+  });
+  await expect(page.locator('#pitchPlay')).toHaveText('Stop sound');
+});
+
+test('backgrounding discards active and fading nodes before wake-up playback', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await page.locator('#pitchPipeButton').click();
+  await page.locator('#pitchPlay').click();
+  await page.evaluate(() => {
+    // Initiate a fade and background before its audio-clock stop completes.
+    window.pitchAudio.oscillators[0].stop = () => {};
+    document.querySelector('#pitchPlay').click();
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].disconnected)).toBe(true);
+  expect(await page.evaluate(() => window.pitchAudio.context.state)).toBe('closed');
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  expect(await page.evaluate(() => window.pitchAudio.contexts.length)).toBe(1);
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(1);
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.contexts.length)).toBe(2);
+  expect(await page.evaluate(() => window.pitchAudio.oscillators[1].starts)).toEqual([10]);
 });
