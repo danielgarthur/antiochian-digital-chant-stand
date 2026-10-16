@@ -160,15 +160,6 @@ further into the church. Consider stand placement, device media volume, clarity
 at the stand, and audibility in the nave; these cannot be measured by the browser.
 No EQ, speaker compensation, or automatic gain boost is applied.
 
-The temporary **Audio wake-up diagnostics** log in Calibration / debug records
-Play/Stop taps, audio state changes, resume requests/results, cancellation reasons,
-visibility/focus events, context disposal, and audio-clock progress. It also reports
-resume timeouts and stalled-clock recovery. The latest 100
-events persist locally across reloads and are never uploaded. To diagnose sleep
-recovery: clear the log, play once, lock the device, unlock it, and tap Play again.
-Then select and copy the log text (or capture screenshots) before clearing it.
-The log remains available during recovery so physical-device behavior can be verified.
-
 ## GitHub Pages deployment
 
 `.github/workflows/deploy-pages.yml` builds and deploys the site without committing any
