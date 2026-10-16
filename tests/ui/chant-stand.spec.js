@@ -822,3 +822,144 @@ test("Stop fades from the current gain to zero in 8 ms and rapid restart does no
   expect(await page.evaluate(() => window.pitchAudio.gains[1].disconnected)).toBe(true);
   await expect(page.locator("#pitchVolumeHelp")).toHaveCount(0);
 });
+
+async function openPitchCalibration(page) {
+  await page.locator('#pitchPipeButton').click();
+  await page.locator('.pitch-calibration summary').click();
+}
+
+test('calibration settings persist, and default comparison preserves experiments', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await openPitchCalibration(page);
+  await page.locator('#pitchCeiling').selectOption('0.025');
+  await page.locator('#pitchTimbre').selectOption('bright');
+  await page.locator('#pitchDuration').selectOption('4');
+  await setPitchLevel(page, 80);
+  await page.locator('#pitchCompareDefaults').check();
+  await expect(page.locator('#pitchTimbre')).toBeDisabled();
+  await expect(page.locator('#pitchCalibrationSummary')).toContainText('Standard defaults: soft, effective ceiling 0.05');
+  await expect(page.locator('#pitchVolume')).toHaveValue('20');
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual([12]);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBe(0.01);
+  expect(await page.evaluate(() => window.pitchAudio.wave.imaginary.length)).toBe(3);
+  await page.locator('#pitchPlay').click();
+  await page.reload();
+  await openPitchCalibration(page);
+  await expect(page.locator('#pitchCompareDefaults')).toBeChecked();
+  await page.locator('#pitchCompareDefaults').uncheck();
+  for (const [id, value] of [['Ceiling', '0.025'], ['Timbre', 'bright'], ['Duration', '4']]) {
+    await expect(page.locator(`#pitch${id}`)).toHaveValue(value);
+  }
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual([14]);
+  expect(await page.evaluate(() => window.pitchAudio.gains[0].gain.events)).toEqual([
+    { kind: 'set', value: 0, time: 10 }, { kind: 'ramp', value: 1, time: 10.15 },
+    { kind: 'set', value: 1, time: 13.8 }, { kind: 'ramp', value: 0, time: 14 },
+  ]);
+});
+
+test('all calibration timbres respect the hard ceiling and calibration edits stop playback', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await openPitchCalibration(page);
+  for (const timbre of ['sine', 'soft', 'bright']) {
+    await page.locator('#pitchTimbre').selectOption(timbre);
+    await setPitchLevel(page, 100);
+    await page.locator('#pitchPlay').click();
+    const audio = await page.evaluate(() => ({ wave: window.pitchAudio.wave, gain: window.pitchAudio.gains.at(-1).gain.events[0].value }));
+    expect(audio.wave.imaginary.reduce((sum, value) => sum + Math.abs(value), 0)).toBeLessThanOrEqual(1);
+    expect(audio.wave.disableNormalization).toBe(true);
+    expect(audio.gain).toBe(0.05);
+    await page.locator('#pitchDuration').selectOption('4');
+    await expect(page.locator('#pitchPlay')).not.toHaveText('Stop sound');
+  }
+  await page.locator('#pitchCeiling').selectOption('0.005');
+  await setPitchLevel(page, 100);
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBe(0.005);
+  await page.locator('#pitchCeiling').selectOption('0.05');
+  await expect(page.locator('#pitchVolume')).toHaveValue('20');
+  await expect(page.locator('#pitchPlay')).not.toHaveText('Stop sound');
+  await setPitchLevel(page, 0);
+  await page.locator('#pitchCeiling').selectOption('0.005');
+  await page.locator('#pitchCeiling').selectOption('0.05');
+  await expect(page.locator('#pitchVolume')).toHaveValue('0');
+});
+
+test('calibration edits cancel pending audio initialization', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await openPitchCalibration(page);
+  await page.evaluate(() => { window.pitchAudio.hold = true; });
+  await page.locator('#pitchPlay').click();
+  await page.locator('#pitchTimbre').selectOption('bright');
+  await page.evaluate(() => window.pitchAudio.release());
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+});
+
+test('invalid saved calibration falls back to bounded defaults', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await page.addInitScript(() => localStorage.setItem('antiochian-chant-stand:pitch-calibration:v1', JSON.stringify({
+    experiment: { ceiling: 100, duration: 900, attack: -1, release: '0', timbre: 'square' },
+  })));
+  await openApp(page);
+  await openPitchCalibration(page);
+  await expect(page.locator('#pitchCeiling')).toHaveValue('0.05');
+  await expect(page.locator('#pitchDuration')).toHaveValue('2');
+  await expect(page.locator('#pitchAttack')).toHaveCount(0);
+  await expect(page.locator('#pitchRelease')).toHaveCount(0);
+  await expect(page.locator('#pitchTimbre')).toHaveValue('soft');
+});
+
+test('expanded calibration keeps Stop and Close visible on a phone in landscape', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await page.setViewportSize({ width: 568, height: 320 });
+  await openApp(page);
+  await openPitchCalibration(page);
+  await page.locator('#pitchResetCalibration').scrollIntoViewIfNeeded();
+  const layout = await page.evaluate(() => {
+    const visible = (id) => { const rect = document.getElementById(id).getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight; };
+    return { stop: visible('pitchPlay'), close: visible('closePitchPipe'), fits: document.documentElement.scrollWidth <= innerWidth };
+  });
+  expect(layout).toEqual({ stop: true, close: true, fits: true });
+});
+
+test('higher test ceilings require fresh permission and reset restores standard sound', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await openPitchCalibration(page);
+  await page.locator('#pitchCeiling').selectOption('0.2');
+  await setPitchLevel(page, 100);
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBe(0.05);
+  await page.locator('#pitchEnableLouderTests').check();
+  await expect(page.locator('#pitchPlay')).not.toHaveText('Stop sound');
+  await expect(page.locator('#pitchVolume')).toHaveValue('20');
+  await setPitchLevel(page, 100);
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBe(0.2);
+  await page.locator('#pitchPlay').click();
+  await page.getByRole('button', { name: 'Close pitch pipe' }).click();
+  await page.locator('#pitchPipeButton').click();
+  await expect(page.locator('#pitchEnableLouderTests')).not.toBeChecked();
+  await expect(page.locator('#pitchCeiling')).toHaveValue('0.2');
+  await page.reload();
+  await openPitchCalibration(page);
+  await expect(page.locator('#pitchEnableLouderTests')).not.toBeChecked();
+  await page.locator('#pitchEnableLouderTests').check();
+  await page.locator('#pitchTimbre').selectOption('bright');
+  await page.locator('#pitchDuration').selectOption('4');
+  await page.locator('#pitchResetCalibration').click();
+  await expect(page.locator('#pitchEnableLouderTests')).not.toBeChecked();
+  await expect(page.locator('#pitchCeiling')).toHaveValue('0.05');
+  await expect(page.locator('#pitchTimbre')).toHaveValue('soft');
+  await expect(page.locator('#pitchDuration')).toHaveValue('2');
+  await expect(page.locator('#pitchVolume')).toHaveValue('20');
+  await page.reload();
+  await openPitchCalibration(page);
+  await expect(page.locator('#pitchCeiling')).toHaveValue('0.05');
+  await expect(page.locator('#pitchVolume')).toHaveValue('20');
+});

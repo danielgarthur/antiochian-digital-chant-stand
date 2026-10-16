@@ -130,6 +130,31 @@ and never resumes automatically. No offline cache is provided.
 Mobile sound quality and final speaker loudness should be checked on physical
 iOS and Android devices before using the feature during a service.
 
+Expand **Calibration / debug** in the pitch pipe to test it on a tablet resting
+on the chant stand. Controls offer ceilings of 0.005–0.20, pure sine / soft /
+brighter harmonic timbres, and 1.5–4 second total duration. Attack and release
+remain fixed at the standard 150 ms and 200 ms. All settings are saved on this
+browser. Changes stop playback; tap Play again to hear them. The normal 0.05 ceiling applies unless **Enable louder test ceilings for this opening**
+is checked. Test ceilings of 0.10 and 0.20 require this explicit permission each
+time the dialog opens; that permission is never saved. The absolute test maximum
+is 0.20. Increasing the effective ceiling, including switching to standard
+defaults for comparison, limits the tone level to 20% or less and preserves mute.
+The normal volume slider still adjusts a playing tone with the same smoothing.
+Stop and Close always use the short 8 ms stop fade.
+
+When finished, tap **Reset sound to defaults**: it stops playback, disables louder
+testing, restores the standard ceiling, timbre and duration, and resets tone level
+to the quiet 20% starting point. This reset is saved across sessions.
+
+**Compare with standard defaults** temporarily uses the original sound without
+discarding experimental settings. Set the same tone level for a deliberate A/B
+comparison after any safety reset. No automatic comparison playback is used.
+Try timbre and octave changes before increasing the device volume: harmonics
+may improve clarity from partially obstructed tablet speakers, but can also carry
+further into the church. Consider stand placement, device media volume, clarity
+at the stand, and audibility in the nave; these cannot be measured by the browser.
+No EQ, speaker compensation, or automatic gain boost is applied.
+
 ## GitHub Pages deployment
 
 `.github/workflows/deploy-pages.yml` builds and deploys the site without committing any

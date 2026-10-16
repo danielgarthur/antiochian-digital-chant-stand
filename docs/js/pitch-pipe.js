@@ -2,8 +2,17 @@
 const NOTES = ["C", "C♯ / D♭", "D", "D♯ / E♭", "E", "F", "F♯ / G♭", "G", "G♯ / A♭", "A", "A♯ / B♭", "B"];
 const STORAGE_KEY = "antiochian-chant-stand:pitch:v1";
 const MAX_GAIN = 0.05; // At most -26 dBFS peak, including the harmonic.
+const MAX_TEST_GAIN = 0.2; // Temporary, explicitly enabled calibration ceiling.
 const DEFAULT_LEVEL = 20; // 0.01 gain (-40 dBFS peak).
 const DURATION = 2;
+const CALIBRATION_KEY = "antiochian-chant-stand:pitch-calibration:v1";
+const DEFAULT_SOUND = { ceiling: MAX_GAIN, timbre: "soft", attack: 0.15, release: 0.2, duration: DURATION };
+const CALIBRATION_OPTIONS = {
+  ceiling: [0.005, 0.01, 0.025, MAX_GAIN, 0.1, MAX_TEST_GAIN], timbre: ["sine", "soft", "bright"],
+  duration: [1.5, 2, 3, 4],
+};
+// Coefficient sums are at most 1, preserving the peak ceiling across timbres.
+const TIMBRES = { sine: [0, 1], soft: [0, 0.94, 0.06], bright: [0, 0.78, 0.16, 0.06] };
 
 export function initializePitchPipe() {
   const get = (id) => document.getElementById(id);
@@ -20,6 +29,41 @@ export function initializePitchPipe() {
   let generation = 0;
   let timer;
   let silenceUntil = 0;
+  let experiment = { ...DEFAULT_SOUND };
+  const calibrationControls = Object.fromEntries(Object.keys(CALIBRATION_OPTIONS).map((key) =>
+    [key, get(`pitch${key[0].toUpperCase()}${key.slice(1)}`)]));
+  const comparison = get("pitchCompareDefaults");
+  const louderTests = get("pitchEnableLouderTests");
+  const calibrationStatus = get("pitchCalibrationStatus");
+  const sound = () => {
+    const settings = comparison.checked ? DEFAULT_SOUND : experiment;
+    return { ...settings, ceiling: Math.min(settings.ceiling, louderTests.checked ? MAX_TEST_GAIN : MAX_GAIN) };
+  };
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(CALIBRATION_KEY));
+    for (const key of Object.keys(CALIBRATION_OPTIONS)) {
+      if (CALIBRATION_OPTIONS[key].includes(saved?.experiment?.[key])) experiment[key] = saved.experiment[key];
+    }
+    comparison.checked = saved?.compareDefaults === true;
+  } catch {
+    calibrationStatus.textContent = "Saved calibration unavailable. Using default settings.";
+  }
+  for (const [key, control] of Object.entries(calibrationControls)) control.value = String(experiment[key]);
+
+  function saveCalibration() {
+    try {
+      localStorage.setItem(CALIBRATION_KEY, JSON.stringify({ experiment, compareDefaults: comparison.checked }));
+    } catch {
+      calibrationStatus.textContent = "Browser storage unavailable. Settings will only last for this page load.";
+    }
+  }
+
+  function updateCalibration() {
+    get("pitchExperiment").disabled = comparison.checked;
+    const settings = sound();
+    get("pitchCalibrationSummary").textContent = `${comparison.checked ? "Standard defaults" : "Experiment"}: ${settings.timbre}, effective ceiling ${settings.ceiling}, ${settings.duration} s.${!comparison.checked && experiment.ceiling > settings.ceiling ? " Higher ceiling saved; enable louder testing to use it." : ""}`;
+  }
 
   function disconnectVoice(ended) {
     ended.oscillator.onended = null;
@@ -44,7 +88,7 @@ export function initializePitchPipe() {
 
   const selectedName = () => `${NOTES[note]}${octave.value}`;
   const selectedFrequency = () => 440 * 2 ** (((Number(octave.value) + 1) * 12 + note - 69) / 12);
-  const selectedGain = () => MAX_GAIN * Math.max(0, Math.min(100, Number(volume.value) || 0)) / 100;
+  const selectedGain = () => Math.min(MAX_TEST_GAIN, sound().ceiling) * Math.max(0, Math.min(100, Number(volume.value) || 0)) / 100;
 
   function update() {
     play.textContent = active ? "Stop sound" : `Play ${selectedName()}`;
@@ -78,7 +122,7 @@ export function initializePitchPipe() {
       }
     }
     active = false;
-    status.textContent = "Two-second tone · A4 = 440 Hz";
+    status.textContent = `${sound().duration}-second tone · A4 = 440 Hz`;
     update();
   }
 
@@ -103,6 +147,44 @@ export function initializePitchPipe() {
     get("pitchNotes").append(button);
   });
   octave.addEventListener("change", choose);
+
+  let previousCeiling = sound().ceiling;
+  function changeCalibration() {
+    stop();
+    for (const [key, control] of Object.entries(calibrationControls)) {
+      const value = key === "timbre" ? control.value : Number(control.value);
+      experiment[key] = CALIBRATION_OPTIONS[key].includes(value) ? value : DEFAULT_SOUND[key];
+    }
+    if (sound().ceiling > previousCeiling) {
+      volume.value = String(Math.min(Number(volume.value), DEFAULT_LEVEL));
+      get("pitchVolumeLabel").textContent = `${volume.value}%`;
+      savePreferences();
+      calibrationStatus.textContent = "Higher ceiling selected. Tone level limited to 20% or less; tap Play when ready.";
+    }
+    previousCeiling = sound().ceiling;
+    saveCalibration();
+    updateCalibration();
+    stop();
+  }
+  for (const control of Object.values(calibrationControls)) control.addEventListener("change", changeCalibration);
+  comparison.addEventListener("change", changeCalibration);
+  louderTests.addEventListener("change", changeCalibration);
+  get("pitchResetCalibration").addEventListener("click", () => {
+    stop();
+    experiment = { ...DEFAULT_SOUND };
+    comparison.checked = false;
+    louderTests.checked = false;
+    for (const [key, control] of Object.entries(calibrationControls)) control.value = String(experiment[key]);
+    volume.value = String(DEFAULT_LEVEL);
+    get("pitchVolumeLabel").textContent = `${DEFAULT_LEVEL}%`;
+    previousCeiling = MAX_GAIN;
+    savePreferences();
+    calibrationStatus.textContent = "Standard sound and quiet 20% level restored.";
+    saveCalibration();
+    updateCalibration();
+    stop();
+  });
+  updateCalibration();
 
   volume.addEventListener("input", () => {
     get("pitchVolumeLabel").textContent = `${volume.value}%`;
@@ -140,20 +222,22 @@ export function initializePitchPipe() {
       if (context.state !== "running") throw new Error("Audio interrupted");
       // A rapid restart must not overlap the previous tone's brief stop fade.
       const now = Math.max(context.currentTime, silenceUntil);
+      const settings = { ...sound() };
       const oscillator = context.createOscillator();
       const envelope = context.createGain();
       const gain = context.createGain();
       // Coefficient sum is 1: the wave cannot exceed unit peak amplitude.
+      const coefficients = TIMBRES[settings.timbre];
       oscillator.setPeriodicWave(context.createPeriodicWave(
-        new Float32Array([0, 0, 0]), new Float32Array([0, 0.94, 0.06]),
+        new Float32Array(coefficients.length), new Float32Array(coefficients),
         { disableNormalization: true }
       ));
       oscillator.frequency.setValueAtTime(selectedFrequency(), now);
       gain.gain.setValueAtTime(selectedGain(), now);
       envelope.gain.setValueAtTime(0, now);
-      envelope.gain.linearRampToValueAtTime(1, now + 0.15);
-      envelope.gain.setValueAtTime(1, now + DURATION - 0.2);
-      envelope.gain.linearRampToValueAtTime(0, now + DURATION);
+      envelope.gain.linearRampToValueAtTime(1, now + settings.attack);
+      envelope.gain.setValueAtTime(1, now + settings.duration - settings.release);
+      envelope.gain.linearRampToValueAtTime(0, now + settings.duration);
       oscillator.connect(envelope);
       envelope.connect(gain);
       gain.connect(context.destination);
@@ -164,9 +248,9 @@ export function initializePitchPipe() {
         if (request === generation) { voice = null; stop(); }
       };
       oscillator.start(now);
-      oscillator.stop(now + DURATION); // Audio-clock limit, independent of timers.
-      timer = setTimeout(() => { if (request === generation) stop(); }, DURATION * 1000 + 100);
-      status.textContent = `Playing ${selectedName()} · stops after two seconds`;
+      oscillator.stop(now + settings.duration); // Audio-clock limit, never beyond 4 seconds.
+      timer = setTimeout(() => { if (request === generation) stop(); }, settings.duration * 1000 + 100);
+      status.textContent = `Playing ${selectedName()} · stops after ${settings.duration} seconds`;
     } catch {
       if (request !== generation) return;
       stop();
@@ -177,6 +261,9 @@ export function initializePitchPipe() {
   trigger.setAttribute("aria-expanded", "false");
   trigger.addEventListener("click", () => {
     stop();
+    louderTests.checked = false;
+    previousCeiling = sound().ceiling;
+    updateCalibration();
     dialog.showModal();
     trigger.setAttribute("aria-expanded", "true");
     get("closePitchPipe").focus(); // Enter after opening cannot accidentally play.
