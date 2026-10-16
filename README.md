@@ -107,6 +107,29 @@ The UI suite uses deterministic service data and a lightweight PDF-viewer substi
 It covers navigation, settings, embedded music links, browser history, saved reading
 positions, and a mobile viewport without downloading live service files.
 
+## Pitch pipe
+
+The tuning-fork button in the header opens the pitch pipe from notes or music.
+Choose a chromatic pitch (C3–B4), then tap Play for a two-second reference tone;
+tap Stop sound or close the panel to silence it with an 8 ms fade that avoids clicks. Selecting a note is
+silent. The last pitch and tone level are remembered on this browser, including
+across reloads. New users start at a quiet 20%. Raising the slider fades the current
+tone up over approximately 150 ms. Decreases, including mute, respond in about
+10 ms with brief smoothing to avoid clicks. Adjusting the level
+never starts a tone or extends its two-second duration. Opening the panel is silent.
+
+Audio is synthesized locally with Web Audio, using a sine fundamental and a faint
+second harmonic, with gentle attack and release. No audio samples or third-party
+sound assets are used. Peak digital output is capped at 0.05 (approximately
+−26 dBFS), with a default of 0.01 (−40 dBFS). These limits reduce output but cannot
+guarantee acoustic loudness: start with the device's media volume low, especially
+when using Bluetooth or external speakers. The app cannot read or set system volume.
+Playback stops on backgrounding, lost window focus, navigation, or audio interruption
+and never resumes automatically. No offline cache is provided.
+
+Mobile sound quality and final speaker loudness should be checked on physical
+iOS and Android devices before using the feature during a service.
+
 ## GitHub Pages deployment
 
 `.github/workflows/deploy-pages.yml` builds and deploys the site without committing any

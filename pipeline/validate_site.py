@@ -47,6 +47,7 @@ def main() -> None:
         "css/site.css",
         "js/app.js",
         "js/pdf-viewer.js",
+        "js/pitch-pipe.js",
         "vendor/pdfjs/pdf.min.mjs",
         "vendor/pdfjs/pdf.worker.min.mjs",
     ):

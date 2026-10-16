@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#26372f">
     <title>Antiochian Chant Stand</title>
-    <link rel="stylesheet" href="./css/site.css?v=ac9ca7e1eb1b">
+    <link rel="stylesheet" href="./css/site.css?v=542ce54a7f83">
   </head>
   <body class="notes-mode">
     <header class="controls" aria-label="Music navigation">
@@ -41,6 +41,11 @@
             </div>
           </div>
         </details>
+        <button id="pitchPipeButton" class="header-action pitch-pipe-trigger" type="button" aria-label="Pitch pipe" title="Pitch pipe" aria-haspopup="dialog" aria-controls="pitchPipeDialog">
+          <svg class="view-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 3v8a4 4 0 0 0 8 0V3M12 15v6M10 21h4" />
+          </svg>
+        </button>
         <button id="viewToggle" class="header-action view-toggle" type="button" aria-label="Return to music" title="Return to music">
           <svg id="notesIcon" class="view-icon" viewBox="0 0 24 24" aria-hidden="true" hidden>
             <path d="M6 3h9l3 3v15H6z" />
@@ -68,6 +73,27 @@
         <button id="nextMusic" class="arrow" type="button" aria-label="Next music">›</button>
       </div>
     </header>
+
+    <dialog id="pitchPipeDialog" class="settings-dialog pitch-pipe-dialog" aria-labelledby="pitchPipeTitle">
+      <div class="dialog-heading">
+        <strong id="pitchPipeTitle">Pitch pipe</strong>
+        <button id="closePitchPipe" class="dialog-close" type="button" aria-label="Close pitch pipe">×</button>
+      </div>
+      <div class="pitch-pipe-content">
+        <p class="pitch-safety">Start with your device volume low. App volume cannot guarantee speaker loudness.</p>
+        <div id="pitchNotes" class="pitch-notes" role="group" aria-label="Pitch"></div>
+        <div class="pitch-details">
+          <label for="pitchOctave">Octave <select id="pitchOctave"><option value="3">3 · lower</option><option value="4">4 · higher</option></select></label>
+          <output id="pitchFrequency" for="pitchOctave"></output>
+        </div>
+        <label class="pitch-volume-label" for="pitchVolume">Tone level (limited) <output id="pitchVolumeLabel" for="pitchVolume">20%</output></label>
+        <input id="pitchVolume" type="range" min="0" max="100" value="20" step="1">
+      </div>
+      <div class="pitch-pipe-footer">
+        <button id="pitchPlay" class="pitch-play" type="button">Play A3</button>
+        <p id="pitchStatus" class="pitch-status" role="status">Two-second tone · A4 = 440 Hz</p>
+      </div>
+    </dialog>
 
     <dialog id="actionsDialog" class="settings-dialog actions-dialog" aria-labelledby="actionsTitle">
       <div class="dialog-heading">
@@ -126,6 +152,6 @@
       <div id="notesPages" class="pages"></div>
     </main>
 
-    <script type="module" src="./js/app.js?v=4392313ba3e7"></script>
+    <script type="module" src="./js/app.js?v=d4d7c817a9f5"></script>
   </body>
 </html>

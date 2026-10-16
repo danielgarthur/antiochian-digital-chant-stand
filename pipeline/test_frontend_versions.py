@@ -15,8 +15,9 @@ class FrontendVersionTests(unittest.TestCase):
             (docs / "js").mkdir()
             (docs / "css" / "site.css").write_text("new styles", encoding="utf-8")
             (docs / "js" / "pdf-viewer.js").write_text("new viewer", encoding="utf-8")
+            (docs / "js" / "pitch-pipe.js").write_text("new pitch pipe", encoding="utf-8")
             (docs / "js" / "app.js").write_text(
-                'import "./pdf-viewer.js?v=deadbeef";\nnew app', encoding="utf-8"
+                'import "./pdf-viewer.js?v=deadbeef";\nimport "./pitch-pipe.js";\nnew app', encoding="utf-8"
             )
             (docs / "index.html").write_text(
                 '<link href="./css/site.css?v=deadbeef"><script src="./js/app.js?v=deadbeef"></script>',
@@ -30,6 +31,10 @@ class FrontendVersionTests(unittest.TestCase):
             index = (docs / "index.html").read_text(encoding="utf-8")
             self.assertIn(
                 f'./pdf-viewer.js?v={frontend_versions.short_file_hash(docs / "js" / "pdf-viewer.js")}',
+                app,
+            )
+            self.assertIn(
+                f'./pitch-pipe.js?v={frontend_versions.short_file_hash(docs / "js" / "pitch-pipe.js")}',
                 app,
             )
             self.assertIn(

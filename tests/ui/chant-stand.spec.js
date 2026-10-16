@@ -507,3 +507,318 @@ test("service arrows stay within the selected date", async ({ page }) => {
   await expect(page.locator("#scheduleLabel")).toHaveText("Today · Bilingual Sunday Orthros");
   await expect(page.locator("#dateSelect")).toHaveValue(localDay());
 });
+
+// Inspect the audio graph without producing sound. Resume can be held pending to
+// exercise the mobile initialization/Stop race deterministically.
+async function instrumentPitchAudio(page) {
+  await page.addInitScript(() => {
+    window.pitchAudio = { oscillators: [], gains: [], hold: false };
+    const param = () => ({
+      value: 0,
+      events: [],
+      setValueAtTime(value, time) { this.value = value; this.events.push({ kind: "set", value, time }); },
+      linearRampToValueAtTime(value, time) { this.events.push({ kind: "ramp", value, time }); },
+      setTargetAtTime(value, time, timeConstant) { this.value = value; this.events.push({ kind: "target", value, time, timeConstant }); },
+      cancelScheduledValues() {},
+    });
+    class AudioContext extends EventTarget {
+      constructor() {
+        super();
+        this.state = "running";
+        this.currentTime = 10;
+        this.destination = {};
+        window.pitchAudio.context = this;
+      }
+      resume() {
+        return window.pitchAudio.hold
+          ? new Promise((resolve) => { window.pitchAudio.release = resolve; })
+          : Promise.resolve();
+      }
+      createPeriodicWave(real, imaginary, options) {
+        window.pitchAudio.wave = { imaginary: [...imaginary], ...options };
+        return {};
+      }
+      createOscillator() {
+        const node = {
+          frequency: param(), starts: [], stops: [], disconnected: false,
+          setPeriodicWave() {}, connect() {},
+          disconnect() { this.disconnected = true; },
+          start(time) { this.starts.push(time); },
+          stop(time) {
+            this.stops.push(time ?? "now");
+            if (this.stops.length > 1) queueMicrotask(() => this.onended?.());
+          },
+        };
+        window.pitchAudio.oscillators.push(node);
+        return node;
+      }
+      createGain() {
+        const node = { gain: param(), disconnected: false, connect() {}, disconnect() { this.disconnected = true; } };
+        window.pitchAudio.gains.push(node);
+        return node;
+      }
+    }
+    window.AudioContext = AudioContext;
+  });
+}
+
+async function setPitchLevel(page, level) {
+  await page.locator("#pitchVolume").evaluate((element, value) => {
+    element.value = String(value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  }, level);
+}
+
+test("pitch pipe is silent until Play, remembers pitch and volume, and fits small screens", async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openApp(page);
+  await page.getByRole("button", { name: "Pitch pipe", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Close pitch pipe" })).toBeFocused();
+  await page.getByRole("button", { name: "C", exact: true }).click();
+  await page.locator("#pitchOctave").selectOption("4");
+  await expect(page.locator("#pitchFrequency")).toHaveText("261.6 Hz");
+  await expect(page.locator("#pitchPlay")).toHaveText("Play C4");
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+  await setPitchLevel(page, 65);
+  await page.getByRole("button", { name: "C", exact: true }).click();
+  await page.getByRole("button", { name: "Close pitch pipe" }).click();
+  await page.locator("#pitchPipeButton").click();
+  await expect(page.locator("#pitchVolume")).toHaveValue("65");
+  await page.getByRole("button", { name: "Close pitch pipe" }).click();
+  await page.reload();
+  await page.getByRole("button", { name: "Pitch pipe", exact: true }).click();
+  await expect(page.locator("#pitchPlay")).toHaveText("Play C4");
+  await expect(page.locator("#pitchVolume")).toHaveValue("65");
+  await expect(page.locator("#pitchVolumeLabel")).toHaveText("65%");
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+  await page.setViewportSize({ width: 568, height: 320 });
+  const layout = await page.evaluate(() => {
+    const play = document.querySelector("#pitchPlay").getBoundingClientRect();
+    const close = document.querySelector("#closePitchPipe").getBoundingClientRect();
+    return { playVisible: play.top >= 0 && play.bottom <= innerHeight,
+      closeVisible: close.top >= 0 && close.bottom <= innerHeight,
+      fits: document.documentElement.scrollWidth <= innerWidth };
+  });
+  expect(layout).toEqual({ playVisible: true, closeVisible: true, fits: true });
+});
+
+test("pitch audio has a bounded waveform, quiet default, gentle envelope and scheduled stop", async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await page.locator("#pitchPipeButton").click();
+  await page.locator("#pitchPlay").click();
+  await expect(page.locator("#pitchPlay")).toHaveText("Stop sound");
+  const audio = await page.evaluate(() => ({
+    frequency: window.pitchAudio.oscillators[0].frequency.events,
+    stops: window.pitchAudio.oscillators[0].stops,
+    envelope: window.pitchAudio.gains[0].gain.events,
+    level: window.pitchAudio.gains[1].gain.events,
+    wave: window.pitchAudio.wave,
+  }));
+  expect(audio.frequency[0].value).toBe(220);
+  expect(audio.stops).toEqual([12]);
+  expect(audio.level).toEqual([{ kind: "set", value: 0.01, time: 10 }]);
+  expect(audio.envelope).toEqual([
+    { kind: "set", value: 0, time: 10 }, { kind: "ramp", value: 1, time: 10.15 },
+    { kind: "set", value: 1, time: 11.8 }, { kind: "ramp", value: 0, time: 12 },
+  ]);
+  expect(audio.wave.disableNormalization).toBe(true);
+  expect(audio.wave.imaginary.reduce((sum, value) => sum + Math.abs(value), 0)).toBeLessThanOrEqual(1);
+  await expect(page.locator("#pitchPlay")).toHaveText("Play A3", { timeout: 3500 });
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].disconnected)).toBe(true);
+});
+
+test("volume rises gradually and falls promptly within the cap, including mute", async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await page.locator("#pitchPipeButton").click();
+  await page.locator("#pitchPlay").click();
+  await setPitchLevel(page, 100);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1))).toEqual(
+    { kind: "target", value: 0.05, time: 10, timeConstant: 0.05 });
+  await setPitchLevel(page, 50);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1))).toEqual(
+    { kind: "target", value: 0.025, time: 10, timeConstant: 0.003 });
+  await setPitchLevel(page, 0);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1))).toEqual(
+    { kind: "target", value: 0, time: 10, timeConstant: 0.003 });
+  await setPitchLevel(page, 100);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1).value)).toBe(0.05);
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(1);
+  expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual([12]);
+  await page.locator("#pitchPlay").click();
+  await setPitchLevel(page, 75);
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(1);
+});
+
+test("Stop and closing cancel pending mobile audio initialization", async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await page.evaluate(() => { window.pitchAudio.hold = true; });
+  await page.locator("#pitchPipeButton").click();
+  await page.locator("#pitchPlay").click();
+  await expect(page.locator("#pitchPlay")).toHaveText("Stop sound");
+  await page.locator("#pitchPlay").click();
+  await page.evaluate(() => window.pitchAudio.release());
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+  await page.locator("#pitchPlay").click();
+  await page.getByRole("button", { name: "Close pitch pipe" }).click();
+  await page.evaluate(() => window.pitchAudio.release());
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+});
+
+for (const exit of ["stop", "close", "escape", "backdrop", "note", "octave", "blur", "hidden", "pagehide", "history", "interrupted"]) {
+  test(`pitch pipe stops immediately on ${exit}`, async ({ page }) => {
+    await instrumentPitchAudio(page);
+    await openApp(page);
+    await page.locator("#pitchPipeButton").click();
+    await page.locator("#pitchPlay").click();
+    if (exit === "stop") await page.locator("#pitchPlay").click();
+    if (exit === "close") await page.getByRole("button", { name: "Close pitch pipe" }).click();
+    if (exit === "escape") await page.keyboard.press("Escape");
+    if (exit === "backdrop") await page.mouse.click(2, 2);
+    if (exit === "note") await page.getByRole("button", { name: "C", exact: true }).click();
+    if (exit === "octave") await page.locator("#pitchOctave").selectOption("4");
+    if (["blur", "pagehide", "history"].includes(exit)) {
+      await page.evaluate((name) => window.dispatchEvent(new Event(name === "history" ? "popstate" : name)), exit);
+    }
+    if (exit === "hidden") await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", { configurable: true, value: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    if (exit === "interrupted") await page.evaluate(() => {
+      window.pitchAudio.context.state = "interrupted";
+      window.pitchAudio.context.dispatchEvent(new Event("statechange"));
+    });
+    await expect(page.locator("#pitchPlay")).not.toHaveText("Stop sound");
+    expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual(exit === "interrupted" ? [12, "now"] : [12, 10.008]);
+    expect(await page.evaluate(() => window.pitchAudio.gains[1].disconnected)).toBe(true);
+    expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(1);
+  });
+}
+
+test("pitch pipe works with the browser's real Web Audio implementation", async ({ page }) => {
+  await openApp(page);
+  await page.locator("#pitchPipeButton").click();
+  // Exercise the real graph, PeriodicWave, resume and audio-clock ended event,
+  // while keeping the test inaudible by muting the destination graph.
+  await page.evaluate(() => {
+    const original = AudioNode.prototype.connect;
+    AudioNode.prototype.connect = function (destination, ...args) {
+      if (destination instanceof AudioDestinationNode) return destination;
+      return original.call(this, destination, ...args);
+    };
+  });
+  await page.locator("#pitchPlay").click();
+  await expect(page.locator("#pitchStatus")).toContainText("Playing A3");
+  await setPitchLevel(page, 100);
+  await setPitchLevel(page, 50);
+  await setPitchLevel(page, 0);
+  await setPitchLevel(page, 75);
+  await expect(page.locator("#pitchPlay")).toHaveText("Play A3", { timeout: 3500 });
+  await expect(page.locator("#pitchStatus")).not.toContainText("unavailable");
+});
+
+test("initializing audio uses the latest chosen volume, including mute", async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await page.evaluate(() => { window.pitchAudio.hold = true; });
+  await page.locator("#pitchPipeButton").click();
+  await page.locator("#pitchPlay").click();
+  await setPitchLevel(page, 100);
+  await page.evaluate(() => window.pitchAudio.release());
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBe(0.05);
+  await page.locator("#pitchPlay").click();
+  await page.locator("#pitchPlay").click();
+  await setPitchLevel(page, 0);
+  await page.evaluate(() => window.pitchAudio.release());
+  expect(await page.evaluate(() => window.pitchAudio.gains[3].gain.events[0].value)).toBe(0);
+});
+
+test("unavailable audio fails silently and muted playback creates no audio graph", async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await page.locator("#pitchPipeButton").click();
+  await setPitchLevel(page, 0);
+  await page.locator("#pitchPlay").click();
+  await expect(page.locator("#pitchStatus")).toHaveText("Tone level is muted.");
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+  await setPitchLevel(page, 20);
+  await page.evaluate(() => { window.AudioContext = undefined; window.webkitAudioContext = undefined; });
+  await page.locator("#pitchPlay").click();
+  await expect(page.locator("#pitchStatus")).toContainText("Audio unavailable");
+  await expect(page.locator("#pitchPlay")).toHaveText("Play A3");
+  await page.getByRole("button", { name: "Close pitch pipe" }).click();
+  await expect(page.locator("#pitchPipeDialog")).not.toBeVisible();
+});
+
+test("pitch pipe supports touch activation without moving the music position", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const page = await context.newPage();
+  await instrumentPitchAudio(page);
+  await openApp(page, `?date=${localDay()}&service=ORTHROS&view=music`);
+  await page.evaluate(() => window.scrollTo(0, 800));
+  const before = await page.evaluate(() => ({ y: scrollY, url: location.href }));
+  await page.locator("#pitchPipeButton").tap();
+  await page.locator("#pitchPlay").tap();
+  await expect(page.locator("#pitchPlay")).toHaveText("Stop sound");
+  await page.locator("#pitchPlay").tap();
+  await page.getByRole("button", { name: "Close pitch pipe" }).tap();
+  expect(await page.evaluate(() => ({ y: scrollY, url: location.href }))).toEqual(before);
+  await context.close();
+});
+
+
+test("saved volume is validated, old preferences keep the quiet default, and mute persists", async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  for (const [savedVolume, expected] of [[undefined, "20"], [-1, "20"], [101, "20"], ["80", "20"], [0, "0"]]) {
+    await page.evaluate((volume) => localStorage.setItem("antiochian-chant-stand:pitch:v1",
+      JSON.stringify({ note: 0, octave: 4, volume })), savedVolume);
+    await page.reload();
+    await page.locator("#pitchPipeButton").click();
+    await expect(page.locator("#pitchVolume")).toHaveValue(expected);
+    await expect(page.locator("#pitchVolumeLabel")).toHaveText(`${expected}%`);
+    await expect(page.locator("#pitchPlay")).toHaveText("Play C4");
+    expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+  }
+  await page.locator("#pitchPlay").click();
+  await expect(page.locator("#pitchStatus")).toHaveText("Tone level is muted.");
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
+});
+
+test("volume smoothing uses the current gain when a transition changes direction", async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await page.locator("#pitchPipeButton").click();
+  await page.locator("#pitchPlay").click();
+  await setPitchLevel(page, 100);
+  // The previous increase has only reached 0.012: 50% is still an increase
+  // in actual sound, even though it is below the previous slider target.
+  await page.evaluate(() => { window.pitchAudio.gains[1].gain.value = 0.012; });
+  await setPitchLevel(page, 50);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1).timeConstant)).toBe(0.05);
+  await setPitchLevel(page, 20);
+  await page.evaluate(() => { window.pitchAudio.gains[1].gain.value = 0.04; });
+  await setPitchLevel(page, 60);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1).timeConstant)).toBe(0.003);
+});
+
+test("Stop fades from the current gain to zero in 8 ms and rapid restart does not overlap", async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await page.locator("#pitchPipeButton").click();
+  await page.locator("#pitchPlay").click();
+  // Simulate stopping in the middle of a volume transition.
+  await page.evaluate(() => { window.pitchAudio.gains[1].gain.value = 0.023; });
+  await page.locator("#pitchPlay").click();
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.slice(-2))).toEqual([
+    { kind: "set", value: 0.023, time: 10 },
+    { kind: "ramp", value: 0, time: 10.008 },
+  ]);
+  await page.locator("#pitchPlay").click();
+  expect(await page.evaluate(() => window.pitchAudio.oscillators[1].starts[0])).toBe(10.008);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].disconnected)).toBe(true);
+  await expect(page.locator("#pitchVolumeHelp")).toHaveCount(0);
+});

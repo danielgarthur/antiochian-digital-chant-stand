@@ -1,4 +1,7 @@
 import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=a11623e46cbe";
+import { initializePitchPipe } from "./pitch-pipe.js?v=a72512b9da2f";
+
+initializePitchPipe();
 
 const elements = Object.fromEntries(
   [

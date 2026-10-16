@@ -22,17 +22,17 @@ def version_asset_reference(text: str, asset: str, version: str) -> str:
 
 def update_frontend_versions() -> None:
     """Cache-bust editable frontend files while retaining readable filenames."""
-    viewer_path = DOCS_DIR / "js" / "pdf-viewer.js"
     app_path = DOCS_DIR / "js" / "app.js"
     css_path = DOCS_DIR / "css" / "site.css"
     index_path = DOCS_DIR / "index.html"
 
     # Module imports have their own cache keys, so version the dependency before
     # hashing the entry module that imports it.
-    viewer_version = short_file_hash(viewer_path)
-    app_text = version_asset_reference(
-        app_path.read_text(encoding="utf-8"), "./pdf-viewer.js", viewer_version
-    )
+    app_text = app_path.read_text(encoding="utf-8")
+    for module in ("pdf-viewer.js", "pitch-pipe.js"):
+        app_text = version_asset_reference(
+            app_text, f"./{module}", short_file_hash(DOCS_DIR / "js" / module)
+        )
     app_path.write_text(app_text, encoding="utf-8")
 
     index_text = index_path.read_text(encoding="utf-8")

@@ -61,7 +61,8 @@ button:disabled { cursor: default; opacity: .28; }
 .schedule summary {
   position: relative;
   display: flex;
-  margin-inline: calc(var(--view-toggle-width) + .35rem);
+  margin-inline-start: calc(var(--view-toggle-width) + .35rem);
+  margin-inline-end: calc(2 * (var(--view-toggle-width) + .35rem));
   min-height: 3rem;
   align-items: center;
   justify-content: center;
@@ -132,6 +133,36 @@ button:disabled { cursor: default; opacity: .28; }
 .actions-button .view-icon { fill: currentColor; stroke: none; }
 
 .view-toggle { right: 0; }
+
+.pitch-pipe-trigger { right: calc(var(--view-toggle-width) + .35rem); }
+
+.pitch-pipe-trigger[aria-expanded="true"] { background: var(--green-light); }
+
+.pitch-pipe-dialog { max-height: calc(100vh - 1rem); max-height: calc(100dvh - 1rem); overflow: hidden; }
+.pitch-pipe-dialog[open] { display: flex; flex-direction: column; }
+.pitch-pipe-dialog .dialog-heading { flex-shrink: 0; }
+.pitch-pipe-content { padding: .8rem 1rem; overflow-y: auto; min-height: 0; }
+.pitch-pipe-footer { flex-shrink: 0; padding: .5rem 1rem max(.8rem, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.pitch-safety { margin: 0 0 .8rem; font-size: .9rem; line-height: 1.4; }
+.pitch-notes { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; }
+.pitch-notes button, .pitch-details select {
+  min-height: 2.8rem;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+  background: white;
+  color: var(--ink);
+}
+.pitch-notes button[aria-pressed="true"] { background: var(--green); color: white; }
+.pitch-details, .pitch-volume-label { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .8rem; }
+.pitch-details select { padding: .3rem; }
+#pitchVolume { width: 100%; min-height: 2.8rem; margin: 0; accent-color: var(--green); }
+#pitchVolumeHelp { display: block; line-height: 1.4; }
+.pitch-play {
+  width: 100%; min-height: 3.2rem; padding: .6rem;
+  border: 0; border-radius: .4rem; background: var(--green); color: white; font: inherit; font-weight: 750;
+}
+.pitch-play[data-active="true"] { background: #8b2922; }
+.pitch-status { margin: .5rem 0 0; min-height: 1.4em; font-size: .85rem; text-align: center; }
 
 .view-icon {
   width: 1.35rem;
