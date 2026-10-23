@@ -7,6 +7,7 @@ const DEFAULT_LEVEL = 5; // 0.01 gain (-40 dBFS peak), as before the ceiling inc
 const DURATION = 2;
 const ATTACK = 0.15;
 const RELEASE = 0.2;
+const GAIN_REFERENCE_HZ = 440 * 2 ** (-9 / 12); // C4; never boost quieter low notes.
 // Coefficient sums are at most 1, preserving the peak ceiling in both octaves.
 const LOW_TIMBRE = [0, 0.78, 0.16, 0.06];
 const HIGH_TIMBRE = [0, 0.94, 0.06];
@@ -75,7 +76,11 @@ export function initializePitchPipe() {
 
   const selectedName = () => `${NOTES[note]}${octave}`;
   const selectedFrequency = () => 440 * 2 ** (((octave + 1) * 12 + note - 69) / 12);
-  const selectedGain = () => MAX_GAIN * Math.max(0, Math.min(100, Number(volume.value) || 0)) / 100;
+  const selectedGain = () => {
+    // About 6 dB less per octave above C4, continuous across octave boundaries.
+    const pitchGain = Math.min(1, GAIN_REFERENCE_HZ / selectedFrequency());
+    return MAX_GAIN * Math.max(0, Math.min(100, Number(volume.value) || 0)) / 100 * pitchGain;
+  };
 
   function update() {
     play.textContent = active ? "Stop sound" : `Play ${selectedName()}`;

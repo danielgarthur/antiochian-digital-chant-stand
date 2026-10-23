@@ -620,7 +620,8 @@ test("pitch audio has a bounded waveform, quiet default, gentle envelope and sch
   }));
   expect(audio.frequency[0].value).toBe(440);
   expect(audio.stops).toEqual([12]);
-  expect(audio.level).toEqual([{ kind: "set", value: 0.01, time: 10 }]);
+  expect(audio.level[0]).toMatchObject({ kind: "set", time: 10 });
+  expect(audio.level[0].value).toBeCloseTo(0.005946, 6);
   expect(audio.envelope).toEqual([
     { kind: "set", value: 0, time: 10 }, { kind: "ramp", value: 1, time: 10.15 },
     { kind: "set", value: 1, time: 11.8 }, { kind: "ramp", value: 0, time: 12 },
@@ -636,6 +637,7 @@ test("volume rises gradually and falls promptly within the cap, including mute",
   await instrumentPitchAudio(page);
   await openApp(page);
   await page.locator("#pitchPipeButton").click();
+  await page.getByRole("button", { name: "C", exact: true }).click();
   await page.locator("#pitchPlay").click();
   await setPitchLevel(page, 100);
   expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1))).toEqual(
@@ -728,6 +730,7 @@ test("initializing audio uses the latest chosen volume, including mute", async (
   await openApp(page);
   await page.evaluate(() => { window.pitchAudio.hold = true; });
   await page.locator("#pitchPipeButton").click();
+  await page.getByRole("button", { name: "C", exact: true }).click();
   await page.locator("#pitchPlay").click();
   await setPitchLevel(page, 100);
   await page.evaluate(() => window.pitchAudio.release());
@@ -795,6 +798,7 @@ test("volume smoothing uses the current gain when a transition changes direction
   await instrumentPitchAudio(page);
   await openApp(page);
   await page.locator("#pitchPipeButton").click();
+  await page.getByRole("button", { name: "C", exact: true }).click();
   await page.locator("#pitchPlay").click();
   await setPitchLevel(page, 100);
   // The previous increase has only reached 0.012: 50% is still an increase
@@ -905,6 +909,7 @@ test('octave buttons select brighter low tones and soft high tones at the same o
   await instrumentPitchAudio(page);
   await openApp(page);
   await page.locator('#pitchPipeButton').click();
+  await page.getByRole('button', { name: 'C', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Octave 4', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Octave 3', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Octave 3', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -938,7 +943,7 @@ test('upgrading defaults to octave 4 without increasing saved output and later c
   await expect(page.locator('.pitch-calibration')).toHaveCount(0);
   await expect(page.locator('#pitchOctave')).toHaveCount(0);
   await page.locator('#pitchPlay').click();
-  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBe(0.04);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBeCloseTo(0.029966, 6);
   expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual([12]);
   await page.getByRole('button', { name: 'Octave 3', exact: true }).click();
   await setPitchLevel(page, 100);
@@ -948,4 +953,29 @@ test('upgrading defaults to octave 4 without increasing saved output and later c
   await page.locator('#pitchPipeButton').click();
   await expect(page.locator('#pitchPlay')).toHaveText('Play F3');
   await expect(page.locator('#pitchVolume')).toHaveValue('100');
+});
+
+test('higher pitches attenuate smoothly above C4 without boosting lower notes', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  await page.locator('#pitchPipeButton').click();
+  await setPitchLevel(page, 100);
+  const gains = [];
+  for (const [octave, note] of [[3, 'C'], [3, 'B'], [4, 'C'], [4, 'C♯ / D♭'], [4, 'A'], [4, 'B']]) {
+    await page.getByRole('button', { name: `Octave ${octave}`, exact: true }).click();
+    await page.getByRole('button', { name: note, exact: true }).click();
+    await page.locator('#pitchPlay').click();
+    gains.push(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value));
+    await page.locator('#pitchPlay').click();
+  }
+  expect(gains.slice(0, 3)).toEqual([0.2, 0.2, 0.2]);
+  expect(gains[3]).toBeCloseTo(0.188775, 6);
+  expect(gains[4]).toBeCloseTo(0.118921, 6);
+  expect(gains[5]).toBeCloseTo(0.105946, 6);
+  expect(gains.every((gain) => gain <= 0.2)).toBe(true);
+  await setPitchLevel(page, 50);
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBeCloseTo(0.052973, 6);
+  await setPitchLevel(page, 100);
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events.at(-1).value)).toBeCloseTo(0.105946, 6);
 });

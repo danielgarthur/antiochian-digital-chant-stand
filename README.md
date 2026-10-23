@@ -123,9 +123,13 @@ Audio is synthesized locally with Web Audio, with gentle attack and release.
 The standard timbre uses stronger second and third harmonics in octave 3 to help
 low notes carry through tablet speakers. Octave 4 keeps the soft fundamental and
 faint second harmonic. Both waveforms retain the same peak output ceiling.
+To soften the louder high notes heard on the tablet, gain decreases smoothly by
+approximately 6 dB per octave above C4. C4 and lower notes retain their existing
+gain; B4 is about 5.5 dB lower than C4 at the same slider setting. This adjustment
+only attenuates output and also applies to live volume changes.
 No audio samples or third-party
 sound assets are used. Peak digital output is capped at 0.20 (approximately
-−14 dBFS), based on tablet testing, with a default of 0.01 (−40 dBFS). These limits reduce output but cannot
+−14 dBFS), based on tablet testing, with a first-use maximum of 0.01 (−40 dBFS) before pitch attenuation. These limits reduce output but cannot
 guarantee acoustic loudness: start with the device's media volume low, especially
 when using Bluetooth or external speakers. The app cannot read or set system volume.
 Playback stops on backgrounding, lost window focus, navigation, or audio interruption
