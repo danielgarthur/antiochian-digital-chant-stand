@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#26372f">
     <title>Antiochian Chant Stand</title>
-    <link rel="stylesheet" href="./css/site.css?v=98d9b5c598ef">
+    <link rel="stylesheet" href="./css/site.css?v=da874172b533">
   </head>
   <body class="notes-mode">
     <header class="controls" aria-label="Music navigation">
@@ -83,39 +83,18 @@
         <p class="pitch-safety">Start with your device volume low. App volume cannot guarantee speaker loudness.</p>
         <div id="pitchNotes" class="pitch-notes" role="group" aria-label="Pitch"></div>
         <div class="pitch-details">
-          <label for="pitchOctave">Octave <select id="pitchOctave"><option value="3">3 · lower</option><option value="4">4 · higher</option></select></label>
-          <output id="pitchFrequency" for="pitchOctave"></output>
+          <div id="pitchOctaves" class="pitch-octaves" role="group" aria-label="Octave">
+            <span aria-hidden="true">Octave</span>
+            <button type="button" data-octave="3" aria-label="Octave 3" aria-pressed="false">3</button>
+            <button type="button" data-octave="4" aria-label="Octave 4" aria-pressed="true">4</button>
+          </div>
+          <output id="pitchFrequency"></output>
         </div>
-        <label class="pitch-volume-label" for="pitchVolume">Volume <output id="pitchVolumeLabel" for="pitchVolume">20%</output></label>
-        <input id="pitchVolume" type="range" min="0" max="100" value="20" step="1">
-        <details class="pitch-calibration">
-          <summary>Calibration / debug</summary>
-          <p>Test before the service, with device volume low. Settings change silently; tap Play to listen. Brighter tones may carry more, even at the same gain.</p>
-          <label class="pitch-compare"><input id="pitchCompareDefaults" type="checkbox"> Compare with standard defaults</label>
-          <label class="pitch-compare"><input id="pitchEnableLouderTests" type="checkbox"> Enable louder test ceilings for this opening</label>
-          <small>Higher ceilings can be substantially louder. Test before the service with device volume low. This permission resets when you reopen.</small>
-          <fieldset id="pitchExperiment">
-            <legend>Experimental settings</legend>
-            <label>Output ceiling <select id="pitchCeiling">
-              <option value="0.005">0.005 · −46 dBFS</option><option value="0.01">0.01 · −40 dBFS</option>
-              <option value="0.025">0.025 · −32 dBFS</option><option value="0.05" selected>0.05 · −26 dBFS (maximum)</option>
-              <option value="0.1">0.10 · −20 dBFS (test)</option><option value="0.2">0.20 · −14 dBFS (test maximum)</option>
-            </select></label>
-            <label>Timbre <select id="pitchTimbre">
-              <option value="sine">Pure sine</option><option value="soft" selected>Standard (brighter low octave)</option><option value="bright">Brighter harmonic (both octaves)</option>
-            </select></label>
-            <label>Total duration <select id="pitchDuration">
-              <option value="1.5">1.5 seconds</option><option value="2" selected>2 seconds (standard)</option><option value="3">3 seconds</option><option value="4">4 seconds</option>
-            </select></label>
-          </fieldset>
-          <p id="pitchCalibrationSummary"></p>
-          <small>The normal ceiling is 0.05; enabled tests are limited to 0.20. Raising the effective ceiling limits tone level to 20% or less. Stop always uses an 8 ms fade.</small>
-          <button id="pitchResetCalibration" type="button">Reset sound to defaults</button>
-          <p id="pitchCalibrationStatus" role="status">Settings are saved on this browser.</p>
-        </details>
+        <label class="pitch-volume-label" for="pitchVolume">Volume <output id="pitchVolumeLabel" for="pitchVolume">5%</output></label>
+        <input id="pitchVolume" type="range" min="0" max="100" value="5" step="1">
       </div>
       <div class="pitch-pipe-footer">
-        <button id="pitchPlay" class="pitch-play" type="button">Play A3</button>
+        <button id="pitchPlay" class="pitch-play" type="button">Play A4</button>
         <p id="pitchStatus" class="pitch-status" role="status">Two-second tone · A4 = 440 Hz</p>
       </div>
     </dialog>
@@ -177,6 +156,6 @@
       <div id="notesPages" class="pages"></div>
     </main>
 
-    <script type="module" src="./js/app.js?v=bb48eb47fe16"></script>
+    <script type="module" src="./js/app.js?v=f2d8355c658b"></script>
   </body>
 </html>

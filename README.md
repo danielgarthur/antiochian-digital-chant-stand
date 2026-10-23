@@ -110,10 +110,11 @@ positions, and a mobile viewport without downloading live service files.
 ## Pitch pipe
 
 The tuning-fork button in the header opens the pitch pipe from notes or music.
-Choose a chromatic pitch (C3–B4), then tap Play for a two-second reference tone;
+Choose a chromatic pitch (C3–B4), then tap Play for a two-second reference tone.
+Octave 4 is the default; large **3** and **4** buttons switch octaves with one tap;
 tap Stop sound or close the panel to silence it with an 8 ms fade that avoids clicks. Selecting a note is
 silent. The last pitch and tone level are remembered on this browser, including
-across reloads. New users start at a quiet 20%. Raising the slider fades the current
+across reloads. New users start at a quiet 5%. Raising the slider fades the current
 tone up over approximately 150 ms. Decreases, including mute, respond in about
 10 ms with brief smoothing to avoid clicks. Adjusting the level
 never starts a tone or extends its two-second duration. Opening the panel is silent.
@@ -123,8 +124,8 @@ The standard timbre uses stronger second and third harmonics in octave 3 to help
 low notes carry through tablet speakers. Octave 4 keeps the soft fundamental and
 faint second harmonic. Both waveforms retain the same peak output ceiling.
 No audio samples or third-party
-sound assets are used. Peak digital output is capped at 0.05 (approximately
-−26 dBFS), with a default of 0.01 (−40 dBFS). These limits reduce output but cannot
+sound assets are used. Peak digital output is capped at 0.20 (approximately
+−14 dBFS), based on tablet testing, with a default of 0.01 (−40 dBFS). These limits reduce output but cannot
 guarantee acoustic loudness: start with the device's media volume low, especially
 when using Bluetooth or external speakers. The app cannot read or set system volume.
 Playback stops on backgrounding, lost window focus, navigation, or audio interruption
@@ -138,31 +139,11 @@ automatically, and late events from discarded contexts cannot cancel new playbac
 Mobile sound quality and final speaker loudness should be checked on physical
 iOS and Android devices before using the feature during a service.
 
-Expand **Calibration / debug** in the pitch pipe to test it on a tablet resting
-on the chant stand. Controls offer ceilings of 0.005–0.20, pure sine / standard /
-brighter harmonic timbres, and 1.5–4 second total duration. Standard adapts to the
-octave; explicit sine and brighter choices apply to both octaves. Attack and release
-remain fixed at the standard 150 ms and 200 ms. All settings are saved on this
-browser. Changes stop playback; tap Play again to hear them. The normal 0.05 ceiling applies unless **Enable louder test ceilings for this opening**
-is checked. Test ceilings of 0.10 and 0.20 require this explicit permission each
-time the dialog opens; that permission is never saved. The absolute test maximum
-is 0.20. Increasing the effective ceiling, including switching to standard
-defaults for comparison, limits the tone level to 20% or less and preserves mute.
-The normal volume slider still adjusts a playing tone with the same smoothing.
-Stop and Close always use the short 8 ms stop fade.
-
-When finished, tap **Reset sound to defaults**: it stops playback, disables louder
-testing, restores the standard ceiling, timbre and duration, and resets tone level
-to the quiet 20% starting point. This reset is saved across sessions.
-
-**Compare with standard defaults** temporarily uses the original sound without
-discarding experimental settings. Set the same tone level for a deliberate A/B
-comparison after any safety reset. No automatic comparison playback is used.
-Try timbre and octave changes before increasing the device volume: harmonics
-may improve clarity from partially obstructed tablet speakers, but can also carry
-further into the church. Consider stand placement, device media volume, clarity
-at the stand, and audibility in the nave; these cannot be measured by the browser.
-No EQ, speaker compensation, or automatic gain boost is applied.
+Calibration and debug controls have been removed. Tones use the standard timbre,
+150 ms attack, 200 ms release, and two-second duration. On upgrade, saved volume
+percentages from the former 0.05 ceiling are divided by four (rounded down) to
+avoid an unexpected output increase; mute stays muted. Existing users receive
+the octave-4 default once, then subsequent octave choices and volume are saved.
 
 ## GitHub Pages deployment
 
