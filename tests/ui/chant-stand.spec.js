@@ -518,6 +518,7 @@ async function instrumentPitchAudio(page) {
       events: [],
       setValueAtTime(value, time) { this.value = value; this.events.push({ kind: "set", value, time }); },
       linearRampToValueAtTime(value, time) { this.events.push({ kind: "ramp", value, time }); },
+      setValueCurveAtTime(values, time, duration) { this.events.push({ kind: "curve", values: [...values], time, duration }); },
       setTargetAtTime(value, time, timeConstant) { this.value = value; this.events.push({ kind: "target", value, time, timeConstant }); },
       cancelScheduledValues() {},
     });
@@ -618,14 +619,24 @@ test("pitch audio has a bounded waveform, quiet default, gentle envelope and sch
     level: window.pitchAudio.gains[1].gain.events,
     wave: window.pitchAudio.wave,
   }));
-  expect(audio.frequency[0].value).toBe(440);
+  expect(audio.frequency).toEqual([{ kind: "set", value: 440, time: 10 }]);
   expect(audio.stops).toEqual([12]);
   expect(audio.level[0]).toMatchObject({ kind: "set", time: 10 });
   expect(audio.level[0].value).toBeCloseTo(0.01, 6);
-  expect(audio.envelope).toEqual([
-    { kind: "set", value: 0, time: 10 }, { kind: "ramp", value: 1, time: 10.15 },
-    { kind: "set", value: 1, time: 11.8 }, { kind: "ramp", value: 0, time: 12 },
-  ]);
+  expect(audio.envelope).toHaveLength(1);
+  const envelope = audio.envelope[0];
+  expect(envelope).toMatchObject({ kind: "curve", time: 10, duration: 2 });
+  expect(envelope.values).toHaveLength(1001);
+  expect(envelope.values[0]).toBe(0);
+  expect(envelope.values.at(-1)).toBe(0);
+  expect(Math.min(...envelope.values)).toBeGreaterThanOrEqual(0);
+  expect(Math.max(...envelope.values)).toBeLessThanOrEqual(1);
+  // Rounded 60 ms attack and 120 ms release pass through half level midway.
+  expect(envelope.values[15]).toBeCloseTo(0.5, 2);
+  expect(envelope.values[970]).toBeCloseTo(0.5, 2);
+  const sustain = envelope.values.slice(30, 941);
+  expect(Math.min(...sustain)).toBeGreaterThanOrEqual(0.996 - 1e-7);
+  expect(Math.max(...sustain) - Math.min(...sustain)).toBeGreaterThan(0);
   await page.evaluate(() => { window.pitchAudio.context.currentTime = 10.5; });
   expect(audio.wave.disableNormalization).toBe(false);
   await expect(page.locator("#pitchPlay")).toHaveText("Play A4", { timeout: 3500 });

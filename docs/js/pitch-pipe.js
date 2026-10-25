@@ -5,10 +5,29 @@ const PREVIOUS_STORAGE_KEY = "antiochian-chant-stand:pitch:v2";
 const LEGACY_STORAGE_KEY = "antiochian-chant-stand:pitch:v1";
 const DEFAULT_LEVEL = 1; // Quiet initial output; the slider can reach unity gain.
 const DURATION = 2;
-const ATTACK = 0.15;
-const RELEASE = 0.2;
+const ATTACK = 0.06;
+const RELEASE = 0.12;
+const AMPLITUDE_VARIATION = 0.004;
 // Sine-series amplitudes for a reed-like tone in both octaves; index 0 is DC.
 const HARMONICS = [0, 1, 0.30, 0.15, 0.08, 0.04, 0.02];
+
+function createEnvelope() {
+  // Smooth, non-repeating level changes of at most 0.4%, always below unity.
+  // Only amplitude varies; the oscillator remains an accurate tuning reference.
+  const interval = 0.1;
+  const levels = Array.from({ length: Math.ceil(DURATION / interval) + 1 },
+    () => 1 - Math.random() * AMPLITUDE_VARIATION);
+  const smooth = (value) => value * value * (3 - 2 * value);
+  return Float32Array.from({ length: DURATION * 500 + 1 }, (_, index) => {
+    const time = index / 500;
+    const segment = Math.min(Math.floor(time / interval), levels.length - 2);
+    const mix = smooth(Math.min(1, (time - segment * interval) / interval));
+    const level = levels[segment] + (levels[segment + 1] - levels[segment]) * mix;
+    const attack = smooth(Math.min(1, time / ATTACK));
+    const release = smooth(Math.min(1, (DURATION - time) / RELEASE));
+    return level * attack * release;
+  });
+}
 
 export function initializePitchPipe() {
   const get = (id) => document.getElementById(id);
@@ -214,10 +233,8 @@ export function initializePitchPipe() {
       ));
       oscillator.frequency.setValueAtTime(selectedFrequency(), now);
       gain.gain.setValueAtTime(selectedGain(), now);
-      envelope.gain.setValueAtTime(0, now);
-      envelope.gain.linearRampToValueAtTime(1, now + ATTACK);
-      envelope.gain.setValueAtTime(1, now + DURATION - RELEASE);
-      envelope.gain.linearRampToValueAtTime(0, now + DURATION);
+      // Audio-clock automation keeps the rounded envelope independent of UI timers.
+      envelope.gain.setValueCurveAtTime(createEnvelope(), now, DURATION);
       oscillator.connect(envelope);
       envelope.connect(gain);
       gain.connect(context.destination);
