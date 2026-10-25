@@ -7,9 +7,8 @@ const DEFAULT_LEVEL = 1; // Quiet initial output; the slider can reach unity gai
 const DURATION = 2;
 const ATTACK = 0.15;
 const RELEASE = 0.2;
-// Coefficient sums are at most 1, keeping both waveforms within unit amplitude.
-const LOW_TIMBRE = [0, 0.78, 0.16, 0.06];
-const HIGH_TIMBRE = [0, 0.94, 0.06];
+// Sine-series amplitudes for a reed-like tone in both octaves; index 0 is DC.
+const HARMONICS = [0, 1, 0.30, 0.15, 0.08, 0.04, 0.02];
 
 export function initializePitchPipe() {
   const get = (id) => document.getElementById(id);
@@ -208,12 +207,10 @@ export function initializePitchPipe() {
       const oscillator = context.createOscillator();
       const envelope = context.createGain();
       const gain = context.createGain();
-      // Coefficient sum is 1: the wave cannot exceed unit peak amplitude.
-      // Extra harmonics help the lower octave speak through small speakers.
-      const coefficients = octave === 3 ? LOW_TIMBRE : HIGH_TIMBRE;
+      // Normalize to unit peak while preserving the relative harmonic amplitudes.
       oscillator.setPeriodicWave(context.createPeriodicWave(
-        new Float32Array(coefficients.length), new Float32Array(coefficients),
-        { disableNormalization: true }
+        new Float32Array(HARMONICS.length), new Float32Array(HARMONICS),
+        { disableNormalization: false }
       ));
       oscillator.frequency.setValueAtTime(selectedFrequency(), now);
       gain.gain.setValueAtTime(selectedGain(), now);

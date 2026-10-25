@@ -627,8 +627,7 @@ test("pitch audio has a bounded waveform, quiet default, gentle envelope and sch
     { kind: "set", value: 1, time: 11.8 }, { kind: "ramp", value: 0, time: 12 },
   ]);
   await page.evaluate(() => { window.pitchAudio.context.currentTime = 10.5; });
-  expect(audio.wave.disableNormalization).toBe(true);
-  expect(audio.wave.imaginary.reduce((sum, value) => sum + Math.abs(value), 0)).toBeLessThanOrEqual(1);
+  expect(audio.wave.disableNormalization).toBe(false);
   await expect(page.locator("#pitchPlay")).toHaveText("Play A4", { timeout: 3500 });
   expect(await page.evaluate(() => window.pitchAudio.gains[1].disconnected)).toBe(true);
 });
@@ -905,7 +904,7 @@ test('backgrounding discards active and fading nodes before wake-up playback', a
   expect(await page.evaluate(() => window.pitchAudio.oscillators[1].starts)).toEqual([10]);
 });
 
-test('octave buttons select brighter low tones and soft high tones at the same output gain', async ({ page }) => {
+test('both octaves use the same six reed harmonics with normalization and unchanged output gain', async ({ page }) => {
   await instrumentPitchAudio(page);
   await openApp(page);
   await page.locator('#pitchPipeButton').click();
@@ -915,18 +914,19 @@ test('octave buttons select brighter low tones and soft high tones at the same o
   await expect(page.getByRole('button', { name: 'Octave 3', exact: true })).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(0);
   await page.locator('#pitchPlay').click();
-  const low = await page.evaluate(() => window.pitchAudio.wave.imaginary);
-  expect(low).toHaveLength(4);
-  expect(low[1]).toBeCloseTo(0.78);
-  expect(low[2]).toBeCloseTo(0.16);
-  expect(low[3]).toBeCloseTo(0.06);
+  const low = await page.evaluate(() => window.pitchAudio.wave);
+  expect(low.disableNormalization).toBe(false);
+  expect(low.imaginary).toHaveLength(7);
+  [0, 1, 0.30, 0.15, 0.08, 0.04, 0.02].forEach((amplitude, index) => {
+    expect(low.imaginary[index]).toBeCloseTo(amplitude, 6);
+  });
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(1);
   expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBe(0.01);
   await page.getByRole('button', { name: 'Octave 4', exact: true }).click();
   await page.locator('#pitchPlay').click();
-  const high = await page.evaluate(() => window.pitchAudio.wave.imaginary);
-  expect(high).toHaveLength(3);
-  expect(high[1]).toBeCloseTo(0.94);
-  expect(high[2]).toBeCloseTo(0.06);
+  const high = await page.evaluate(() => window.pitchAudio.wave);
+  expect(high).toEqual(low);
+  expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(2);
   expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBe(0.01);
 });
 
