@@ -621,7 +621,7 @@ test("pitch audio has a bounded waveform, quiet default, gentle envelope and sch
   expect(audio.frequency[0].value).toBe(440);
   expect(audio.stops).toEqual([12]);
   expect(audio.level[0]).toMatchObject({ kind: "set", time: 10 });
-  expect(audio.level[0].value).toBeCloseTo(0.005946, 6);
+  expect(audio.level[0].value).toBeCloseTo(0.01, 6);
   expect(audio.envelope).toEqual([
     { kind: "set", value: 0, time: 10 }, { kind: "ramp", value: 1, time: 10.15 },
     { kind: "set", value: 1, time: 11.8 }, { kind: "ramp", value: 0, time: 12 },
@@ -633,7 +633,7 @@ test("pitch audio has a bounded waveform, quiet default, gentle envelope and sch
   expect(await page.evaluate(() => window.pitchAudio.gains[1].disconnected)).toBe(true);
 });
 
-test("volume rises gradually and falls promptly within the cap, including mute", async ({ page }) => {
+test("volume rises gradually and falls promptly up to unity gain, including mute", async ({ page }) => {
   await instrumentPitchAudio(page);
   await openApp(page);
   await page.locator("#pitchPipeButton").click();
@@ -641,15 +641,15 @@ test("volume rises gradually and falls promptly within the cap, including mute",
   await page.locator("#pitchPlay").click();
   await setPitchLevel(page, 100);
   expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1))).toEqual(
-    { kind: "target", value: 0.2, time: 10, timeConstant: 0.05 });
+    { kind: "target", value: 1, time: 10, timeConstant: 0.05 });
   await setPitchLevel(page, 50);
   expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1))).toEqual(
-    { kind: "target", value: 0.1, time: 10, timeConstant: 0.003 });
+    { kind: "target", value: 0.5, time: 10, timeConstant: 0.003 });
   await setPitchLevel(page, 0);
   expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1))).toEqual(
     { kind: "target", value: 0, time: 10, timeConstant: 0.003 });
   await setPitchLevel(page, 100);
-  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1).value)).toBe(0.2);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1).value)).toBe(1);
   expect(await page.evaluate(() => window.pitchAudio.oscillators.length)).toBe(1);
   expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual([12]);
   await page.locator("#pitchPlay").click();
@@ -734,7 +734,7 @@ test("initializing audio uses the latest chosen volume, including mute", async (
   await page.locator("#pitchPlay").click();
   await setPitchLevel(page, 100);
   await page.evaluate(() => window.pitchAudio.release());
-  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBe(0.2);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBe(1);
   await page.locator("#pitchPlay").click();
   await page.locator("#pitchPlay").click();
   await setPitchLevel(page, 0);
@@ -779,8 +779,8 @@ test("pitch pipe supports touch activation without moving the music position", a
 test("saved volume is validated, old preferences keep the quiet default, and mute persists", async ({ page }) => {
   await instrumentPitchAudio(page);
   await openApp(page);
-  for (const [savedVolume, expected] of [[undefined, "5"], [-1, "5"], [101, "5"], ["80", "5"], [0, "0"]]) {
-    await page.evaluate((volume) => localStorage.setItem("antiochian-chant-stand:pitch:v2",
+  for (const [savedVolume, expected] of [[undefined, "1"], [-1, "1"], [101, "1"], ["80", "1"], [0, "0"]]) {
+    await page.evaluate((volume) => localStorage.setItem("antiochian-chant-stand:pitch:v3",
       JSON.stringify({ note: 0, octave: 4, volume })), savedVolume);
     await page.reload();
     await page.locator("#pitchPipeButton").click();
@@ -807,7 +807,7 @@ test("volume smoothing uses the current gain when a transition changes direction
   await setPitchLevel(page, 50);
   expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1).timeConstant)).toBe(0.05);
   await setPitchLevel(page, 20);
-  await page.evaluate(() => { window.pitchAudio.gains[1].gain.value = 0.16; });
+  await page.evaluate(() => { window.pitchAudio.gains[1].gain.value = 0.8; });
   await setPitchLevel(page, 60);
   expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events.at(-1).timeConstant)).toBe(0.003);
 });
@@ -939,23 +939,23 @@ test('upgrading defaults to octave 4 without increasing saved output and later c
   await openApp(page);
   await page.locator('#pitchPipeButton').click();
   await expect(page.locator('#pitchPlay')).toHaveText('Play F4');
-  await expect(page.locator('#pitchVolume')).toHaveValue('20');
+  await expect(page.locator('#pitchVolume')).toHaveValue('2');
   await expect(page.locator('.pitch-calibration')).toHaveCount(0);
   await expect(page.locator('#pitchOctave')).toHaveCount(0);
   await page.locator('#pitchPlay').click();
-  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBeCloseTo(0.029966, 6);
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBeCloseTo(0.02, 6);
   expect(await page.evaluate(() => window.pitchAudio.oscillators[0].stops)).toEqual([12]);
   await page.getByRole('button', { name: 'Octave 3', exact: true }).click();
   await setPitchLevel(page, 100);
   await page.locator('#pitchPlay').click();
-  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBe(0.2);
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBe(1);
   await page.reload();
   await page.locator('#pitchPipeButton').click();
   await expect(page.locator('#pitchPlay')).toHaveText('Play F3');
   await expect(page.locator('#pitchVolume')).toHaveValue('100');
 });
 
-test('higher pitches attenuate smoothly above C4 without boosting lower notes', async ({ page }) => {
+test('all pitches reach unity gain and follow the volume slider', async ({ page }) => {
   await instrumentPitchAudio(page);
   await openApp(page);
   await page.locator('#pitchPipeButton').click();
@@ -968,14 +968,35 @@ test('higher pitches attenuate smoothly above C4 without boosting lower notes', 
     gains.push(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value));
     await page.locator('#pitchPlay').click();
   }
-  expect(gains.slice(0, 3)).toEqual([0.2, 0.2, 0.2]);
-  expect(gains[3]).toBeCloseTo(0.188775, 6);
-  expect(gains[4]).toBeCloseTo(0.118921, 6);
-  expect(gains[5]).toBeCloseTo(0.105946, 6);
-  expect(gains.every((gain) => gain <= 0.2)).toBe(true);
+  expect(gains.slice(0, 3)).toEqual([1, 1, 1]);
+  expect(gains[3]).toBeCloseTo(1, 6);
+  expect(gains[4]).toBeCloseTo(1, 6);
+  expect(gains[5]).toBeCloseTo(1, 6);
+  expect(gains.every((gain) => gain === 1)).toBe(true);
   await setPitchLevel(page, 50);
   await page.locator('#pitchPlay').click();
-  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBeCloseTo(0.052973, 6);
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events[0].value)).toBeCloseTo(0.5, 6);
   await setPitchLevel(page, 100);
-  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events.at(-1).value)).toBeCloseTo(0.105946, 6);
+  expect(await page.evaluate(() => window.pitchAudio.gains.at(-1).gain.events.at(-1).value)).toBeCloseTo(1, 6);
+});
+
+
+test('previous capped levels migrate once and new full volume persists', async ({ page }) => {
+  await instrumentPitchAudio(page);
+  await openApp(page);
+  for (const [note, volume, expected] of [[0, 100, '20'], [9, 100, '11'], [0, 0, '0']]) {
+    await page.evaluate(({ note, volume }) => {
+      localStorage.removeItem('antiochian-chant-stand:pitch:v3');
+      localStorage.setItem('antiochian-chant-stand:pitch:v2', JSON.stringify({ note, octave: 4, volume }));
+    }, { note, volume });
+    await page.reload();
+    await page.locator('#pitchPipeButton').click();
+    await expect(page.locator('#pitchVolume')).toHaveValue(expected);
+  }
+  await setPitchLevel(page, 100);
+  await page.reload();
+  await page.locator('#pitchPipeButton').click();
+  await expect(page.locator('#pitchVolume')).toHaveValue('100');
+  await page.locator('#pitchPlay').click();
+  expect(await page.evaluate(() => window.pitchAudio.gains[1].gain.events[0].value)).toBe(1);
 });

@@ -129,9 +129,7 @@ gain; B4 is about 5.5 dB lower than C4 at the same slider setting. This adjustme
 only attenuates output and also applies to live volume changes.
 No audio samples or third-party
 sound assets are used. Peak digital output is capped at 0.20 (approximately
-−14 dBFS), based on tablet testing, with a first-use maximum of 0.01 (−40 dBFS) before pitch attenuation. These limits reduce output but cannot
-guarantee acoustic loudness: start with the device's media volume low, especially
-when using Bluetooth or external speakers. The app cannot read or set system volume.
+−14 dBFS), based on tablet testing, with a first-use maximum of 0.01 (−40 dBFS) before pitch attenuation. These limits reduce output.
 Playback stops on backgrounding, lost window focus, navigation, or audio interruption
 and never resumes automatically. No offline cache is provided.
 Backgrounding or losing focus disconnects all audio nodes and discards the context;

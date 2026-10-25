@@ -1,14 +1,13 @@
 // All sound is synthesized here; no recordings or third-party assets are used.
 const NOTES = ["C", "C♯ / D♭", "D", "D♯ / E♭", "E", "F", "F♯ / G♭", "G", "G♯ / A♭", "A", "A♯ / B♭", "B"];
-const STORAGE_KEY = "antiochian-chant-stand:pitch:v2";
+const STORAGE_KEY = "antiochian-chant-stand:pitch:v3";
+const PREVIOUS_STORAGE_KEY = "antiochian-chant-stand:pitch:v2";
 const LEGACY_STORAGE_KEY = "antiochian-chant-stand:pitch:v1";
-const MAX_GAIN = 0.2; // Tablet-tested maximum, approximately -14 dBFS peak.
-const DEFAULT_LEVEL = 5; // 0.01 gain (-40 dBFS peak), as before the ceiling increase.
+const DEFAULT_LEVEL = 1; // Quiet initial output; the slider can reach unity gain.
 const DURATION = 2;
 const ATTACK = 0.15;
 const RELEASE = 0.2;
-const GAIN_REFERENCE_HZ = 440 * 2 ** (-9 / 12); // C4; never boost quieter low notes.
-// Coefficient sums are at most 1, preserving the peak ceiling in both octaves.
+// Coefficient sums are at most 1, keeping both waveforms within unit amplitude.
 const LOW_TIMBRE = [0, 0.78, 0.16, 0.06];
 const HIGH_TIMBRE = [0, 0.94, 0.06];
 
@@ -63,24 +62,28 @@ export function initializePitchPipe() {
   volume.value = String(DEFAULT_LEVEL);
   try {
     const current = localStorage.getItem(STORAGE_KEY);
-    const saved = JSON.parse(current ?? localStorage.getItem(LEGACY_STORAGE_KEY));
+    const previous = localStorage.getItem(PREVIOUS_STORAGE_KEY);
+    const saved = JSON.parse(current ?? previous ?? localStorage.getItem(LEGACY_STORAGE_KEY));
     if (Number.isInteger(saved?.note) && saved.note >= 0 && saved.note < 12) note = saved.note;
     // Existing users get the new octave-4 default once; later choices persist.
-    if (current !== null && [3, 4].includes(saved?.octave)) octave = saved.octave;
+    if ((current !== null || previous !== null) && [3, 4].includes(saved?.octave)) octave = saved.octave;
     if (Number.isInteger(saved?.volume) && saved.volume >= 0 && saved.volume <= 100) {
-      // Preserve (or slightly lower) the former 0.05-ceiling output on upgrade.
-      volume.value = String(current === null ? Math.floor(saved.volume / 4) : saved.volume);
+      let level = saved.volume;
+      if (current === null && level > 0) {
+        // Translate the old cap and pitch attenuation into the new slider once.
+        const pitchGain = Math.min(1, 2 ** ((60 - ((octave + 1) * 12 + note)) / 12));
+        const oldLevel = previous !== null ? level : Math.floor(level / 4);
+        level = Math.max(1, Math.floor(oldLevel * 0.2 * pitchGain));
+      }
+      volume.value = String(level);
     }
   } catch { /* Storage is optional. */ }
   get("pitchVolumeLabel").textContent = `${volume.value}%`;
 
   const selectedName = () => `${NOTES[note]}${octave}`;
   const selectedFrequency = () => 440 * 2 ** (((octave + 1) * 12 + note - 69) / 12);
-  const selectedGain = () => {
-    // About 6 dB less per octave above C4, continuous across octave boundaries.
-    const pitchGain = Math.min(1, GAIN_REFERENCE_HZ / selectedFrequency());
-    return MAX_GAIN * Math.max(0, Math.min(100, Number(volume.value) || 0)) / 100 * pitchGain;
-  };
+  // 100% is unity gain; device/OS volume controls the final speaker level.
+  const selectedGain = () => Math.max(0, Math.min(100, Number(volume.value) || 0)) / 100;
 
   function update() {
     play.textContent = active ? "Stop sound" : `Play ${selectedName()}`;
@@ -119,7 +122,7 @@ export function initializePitchPipe() {
       }
     }
     active = false;
-    status.textContent = `${DURATION}-second tone · A4 = 440 Hz`;
+    status.textContent = "";
     update();
   }
 

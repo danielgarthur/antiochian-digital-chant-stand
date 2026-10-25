@@ -1,5 +1,5 @@
 import { clearPdf, resizePdf, showPdf } from "./pdf-viewer.js?v=a11623e46cbe";
-import { initializePitchPipe } from "./pitch-pipe.js?v=46a8118a3f7d";
+import { initializePitchPipe } from "./pitch-pipe.js?v=dc25f7eb73c8";
 
 initializePitchPipe();
 

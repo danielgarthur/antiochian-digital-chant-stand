@@ -143,7 +143,6 @@ button:disabled { cursor: default; opacity: .28; }
 .pitch-pipe-dialog .dialog-heading { flex-shrink: 0; }
 .pitch-pipe-content { padding: .8rem 1rem; overflow-y: auto; min-height: 0; }
 .pitch-pipe-footer { flex-shrink: 0; padding: .5rem 1rem max(.8rem, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
-.pitch-safety { margin: 0 0 .8rem; font-size: .9rem; line-height: 1.4; }
 .pitch-notes { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; }
 .pitch-notes button, .pitch-octaves button {
   min-height: 2.8rem;

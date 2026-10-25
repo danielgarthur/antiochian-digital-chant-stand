@@ -80,7 +80,6 @@
         <button id="closePitchPipe" class="dialog-close" type="button" aria-label="Close pitch pipe">×</button>
       </div>
       <div class="pitch-pipe-content">
-        <p class="pitch-safety">Start with your device volume low. App volume cannot guarantee speaker loudness.</p>
         <div id="pitchNotes" class="pitch-notes" role="group" aria-label="Pitch"></div>
         <div class="pitch-details">
           <div id="pitchOctaves" class="pitch-octaves" role="group" aria-label="Octave">
@@ -90,12 +89,12 @@
           </div>
           <output id="pitchFrequency"></output>
         </div>
-        <label class="pitch-volume-label" for="pitchVolume">Volume <output id="pitchVolumeLabel" for="pitchVolume">5%</output></label>
-        <input id="pitchVolume" type="range" min="0" max="100" value="5" step="1">
+        <label class="pitch-volume-label" for="pitchVolume">Volume <output id="pitchVolumeLabel" for="pitchVolume">1%</output></label>
+        <input id="pitchVolume" type="range" min="0" max="100" value="1" step="1">
       </div>
       <div class="pitch-pipe-footer">
         <button id="pitchPlay" class="pitch-play" type="button">Play A4</button>
-        <p id="pitchStatus" class="pitch-status" role="status">Two-second tone · A4 = 440 Hz</p>
+        <p id="pitchStatus" class="pitch-status" role="status"></p>
       </div>
     </dialog>
 
@@ -156,6 +155,6 @@
       <div id="notesPages" class="pages"></div>
     </main>
 
-    <script type="module" src="./js/app.js?v=237041c7d09e"></script>
+    <script type="module" src="./js/app.js?v=60e9b68b267a"></script>
   </body>
 </html>
